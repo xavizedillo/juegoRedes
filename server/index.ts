@@ -124,7 +124,7 @@ io.on('connection', (socket) => {
         level: 1,
         exp: 0,
         gold: 0,
-        inventory: [],
+        inventory: ['sword_thrust', 'fire_spell', 'dagger_strike'],
         characterClass,
       };
     }
@@ -161,16 +161,79 @@ io.on('connection', (socket) => {
     }
 
     const result = processCombatTurn(player, boss, data.attackId);
+    lobby.gameState.players[socket.id].hp = result.playerHp;
     activeBosses.set(data.lobbyId, boss);
 
     if (boss.hp <= 0) {
-      io.to(data.lobbyId).emit('game_completed', {
-        winner: socket.id,
-        gameState: lobby.gameState,
-      });
+      const goldReward = 50 + lobby.gameState.floor * 25;
+      player.gold += goldReward;
+      player.exp += 100 + lobby.gameState.floor * 20;
+
+      if (lobby.gameState.floor < 10) {
+        lobby.gameState.floor += 1;
+        const newBoss = calculateBossStats(lobby.players.length, lobby.gameState.floor);
+        activeBosses.set(data.lobbyId, newBoss);
+
+        Object.values(lobby.gameState.players).forEach((p: any) => {
+          p.hp = p.maxHp;
+        });
+
+        io.to(data.lobbyId).emit('game_state_update', {
+          gameState: lobby.gameState,
+          boss: newBoss,
+          combatLog: `¡${boss.name} ha sido derrotado! Ganas ${goldReward} oro. Avanzando al nivel ${lobby.gameState.floor}...`,
+        });
+      } else {
+        io.to(data.lobbyId).emit('game_completed', {
+          winner: socket.id,
+          gameState: lobby.gameState,
+        });
+      }
     } else {
       io.to(data.lobbyId).emit('game_state_update', { gameState: lobby.gameState, boss, combatLog: result.combatLog });
     }
+  });
+
+  socket.on('buy_attack', (data: { lobbyId: string; attackId: string }) => {
+    const lobby = lobbies.get(data.lobbyId);
+    if (!lobby || !lobby.gameState) {
+      socket.emit('error', { message: 'Partida no iniciada' });
+      return;
+    }
+
+    const player = lobby.gameState.players[socket.id];
+    if (!player) {
+      socket.emit('error', { message: 'Jugador no encontrado' });
+      return;
+    }
+
+    const characterClass = player.characterClass || 'warrior';
+    const attacks = ATTACKS[characterClass];
+    const attack = attacks.find((a: any) => a.id === data.attackId);
+
+    if (!attack) {
+      socket.emit('error', { message: 'Ataque no encontrado' });
+      return;
+    }
+
+    if (player.inventory.includes(data.attackId)) {
+      socket.emit('error', { message: 'Ya tienes este ataque' });
+      return;
+    }
+
+    const cost = attack.cost || 0;
+    if (player.gold < cost) {
+      socket.emit('error', { message: 'No tienes suficiente oro' });
+      return;
+    }
+
+    player.gold -= cost;
+    player.inventory.push(data.attackId);
+
+    io.to(data.lobbyId).emit('game_state_update', {
+      gameState: lobby.gameState,
+      combatLog: `¡Has desbloqueado ${attack.name} por ${cost} oro!`,
+    });
   });
 
   socket.on('disconnect', () => {

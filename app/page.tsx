@@ -123,79 +123,43 @@ export default function Home() {
     const ctx = (canvas as HTMLCanvasElement).getContext('2d');
     if (!ctx) return;
 
+    const scenarioImage = new Image();
+    const bossImage = new Image();
+    const currentFloor = lobby?.gameState?.floor || 1;
+
+    scenarioImage.src = `/esc${currentFloor}.png`;
+    bossImage.src = `/boss${currentFloor}.png`;
+
     const render = () => {
       ctx.fillStyle = '#1a1a2e';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      const floorColor = '#2d2d44';
-      const wallColor = '#1e1e32';
-      const torchColor = '#ff6600';
-
-      ctx.fillStyle = floorColor;
-      ctx.fillRect(0, 200, canvas.width, canvas.height - 200);
-
-      for (let i = 0; i < 10; i++) {
-        ctx.fillStyle = '#383850';
-        ctx.fillRect(i * 80 + 10, 200 + (i % 3) * 40, 60, 30);
-      }
-
-      ctx.fillStyle = wallColor;
-      ctx.fillRect(0, 0, canvas.width, 200);
-
-      for (let i = 0; i < 5; i++) {
-        ctx.fillStyle = '#252540';
-        ctx.fillRect(i * 150 + 30, 50, 30, 150);
-        ctx.fillStyle = '#2a2a4a';
-        ctx.fillRect(i * 150 + 35, 55, 20, 140);
-      }
-
-      const torchPositions = [80, 350, 620];
-      torchPositions.forEach(x => {
-        ctx.fillStyle = '#4a3a2a';
-        ctx.fillRect(x - 3, 30, 6, 50);
-        ctx.fillStyle = torchColor;
-        ctx.beginPath();
-        ctx.arc(x, 20, 15, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#ffaa00';
-        ctx.beginPath();
-        ctx.arc(x, 25, 8, 0, Math.PI * 2);
-        ctx.fill();
-      });
-
-      const chainX = 180;
-      ctx.strokeStyle = '#5a5a6a';
-      ctx.lineWidth = 3;
-      for (let i = 0; i < 5; i++) {
-        ctx.beginPath();
-        ctx.moveTo(chainX, 60 + i * 20);
-        ctx.lineTo(chainX + 15, 70 + i * 20);
-        ctx.lineTo(chainX, 80 + i * 20);
-        ctx.stroke();
+      if (scenarioImage.complete) {
+        ctx.drawImage(scenarioImage, 0, 0, canvas.width, canvas.height);
       }
 
       if (boss) {
         const bossX = 150;
-        const bossY = 300;
-        const bossSize = 80;
+        const bossY = 250;
+        const bossSize = 120;
 
-        ctx.fillStyle = '#8b0000';
-        ctx.fillRect(bossX, bossY, bossSize, bossSize);
-        ctx.fillStyle = '#a52a2a';
-        ctx.fillRect(bossX + 10, bossY + 10, bossSize - 20, bossSize - 20);
-        ctx.fillStyle = '#ff0000';
-        ctx.fillRect(bossX + 20, bossY + 20, bossSize - 40, bossSize - 40);
+        if (bossImage.complete) {
+          ctx.drawImage(bossImage, bossX, bossY, bossSize, bossSize);
+        } else {
+          ctx.fillStyle = '#8b0000';
+          ctx.fillRect(bossX, bossY, bossSize, bossSize);
+        }
 
         ctx.fillStyle = '#fff';
-        ctx.font = 'bold 16px Arial';
+        ctx.font = 'bold 14px Courier New, monospace';
         ctx.textAlign = 'center';
-        ctx.fillText('Minotauro', bossX + bossSize / 2, bossY - 15);
+        ctx.fillText(boss.name || 'Boss', bossX + bossSize / 2, bossY - 15);
 
         const bossHpPercent = boss.hp / boss.maxHp;
-        const hpBarWidth = 120;
+        const hpBarWidth = 140;
         const hpBarHeight = 20;
         const hpBarX = bossX + bossSize / 2 - hpBarWidth / 2;
-        const hpBarY = bossY - 45;
+        const hpBarY = bossY - 40;
 
         ctx.fillStyle = '#333';
         ctx.fillRect(hpBarX, hpBarY, hpBarWidth, hpBarHeight);
@@ -208,14 +172,73 @@ export default function Home() {
         ctx.strokeRect(hpBarX, hpBarY, hpBarWidth, hpBarHeight);
 
         ctx.fillStyle = '#fff';
-        ctx.font = 'bold 12px Arial';
+        ctx.font = 'bold 12px Courier New, monospace';
         ctx.fillText(`${boss.hp}/${boss.maxHp}`, bossX + bossSize / 2, hpBarY - 5);
+      }
 
-        const minionX = 50;
-        const minionY = 320;
-        const minionSize = 40;
+      if (lobby?.gameState?.players) {
+        const heroBaseX = 500;
+        const heroY = 280;
+        const heroSize = 80;
+        const heroSpacing = 100;
 
-        ctx.fillStyle = '#4a4a00';
+        Object.values(lobby.gameState.players).forEach((p: any, index: number) => {
+          const heroX = heroBaseX + index * heroSpacing;
+          const characterClass = (p.characterClass || 'warrior') as CharacterClass;
+          const characterImage = characterClass === 'warrior' ? '/per2.png' : characterClass === 'mage' ? '/per3.png' : '/per1.png';
+          const img = new Image();
+          img.src = characterImage;
+
+          if (img.complete) {
+            ctx.drawImage(img, heroX, heroY, heroSize, heroSize);
+          } else {
+            const stats = CHARACTER_CLASSES[characterClass];
+            ctx.fillStyle = stats.color;
+            ctx.fillRect(heroX, heroY, heroSize, heroSize);
+          }
+
+          ctx.strokeStyle = '#ffd700';
+          ctx.lineWidth = 3;
+          ctx.strokeRect(heroX, heroY, heroSize, heroSize);
+
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold 12px Courier New, monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText(p.characterClass || 'warrior', heroX + heroSize / 2, heroY - 10);
+
+          const playerHpPercent = p.hp / p.maxHp;
+          const hpBarWidth = 80;
+          const hpBarHeight = 15;
+          const hpBarX = heroX + heroSize / 2 - hpBarWidth / 2;
+          const hpBarY = heroY - 30;
+
+          ctx.fillStyle = '#333';
+          ctx.fillRect(hpBarX, hpBarY, hpBarWidth, hpBarHeight);
+
+          ctx.fillStyle = playerHpPercent > 0.5 ? '#00ff00' : playerHpPercent > 0.25 ? '#ffff00' : '#ff0000';
+          ctx.fillRect(hpBarX, hpBarY, hpBarWidth * playerHpPercent, hpBarHeight);
+
+          ctx.strokeStyle = '#fff';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(hpBarX, hpBarY, hpBarWidth, hpBarHeight);
+
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold 10px Courier New, monospace';
+          ctx.fillText(`${p.hp}/${p.maxHp}`, heroX + heroSize / 2, hpBarY - 5);
+        });
+      }
+
+      animationRef.current = requestAnimationFrame(render);
+    };
+
+    render();
+
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, [view, boss, lobby]);
         ctx.fillRect(minionX, minionY, minionSize, minionSize);
         ctx.fillStyle = '#6a6a00';
         ctx.fillRect(minionX + 5, minionY + 5, minionSize - 10, minionSize - 10);
@@ -675,54 +698,62 @@ export default function Home() {
         justifyContent: 'center',
         alignItems: 'center',
         height: '100vh',
-        background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
+        backgroundImage: 'url(/portada.png)',
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
         margin: 0,
         padding: 0,
         color: '#fff',
-        fontFamily: 'Arial, sans-serif',
+        fontFamily: 'Courier New, monospace',
+        position: 'relative',
       }}>
         <div style={{
-          background: 'rgba(26, 26, 46, 0.95)',
-          padding: '50px 60px',
-          borderRadius: '20px',
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.7)',
+          zIndex: 0,
+        }}></div>
+        <div style={{
+          position: 'relative',
+          zIndex: 1,
+          background: 'rgba(30, 20, 10, 0.95)',
+          padding: '40px 50px',
+          border: '4px solid #8b4513',
           textAlign: 'center',
-          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
-          border: '2px solid rgba(100, 100, 150, 0.3)',
+          boxShadow: '0 0 40px rgba(139, 69, 19, 0.5), inset 0 0 20px rgba(0, 0, 0, 0.5)',
           maxWidth: '450px',
           width: '100%',
+          imageRendering: 'pixelated',
         }}>
           <div style={{
-            width: '70px',
-            height: '70px',
-            margin: '0 auto 15px',
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-            borderRadius: '15px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: '0 10px 30px rgba(102, 126, 234, 0.3)',
-          }}>
-            <div style={{
-              width: '30px',
-              height: '30px',
-              background: '#fff',
-              borderRadius: '6px',
-            }}></div>
-          </div>
+            height: '4px',
+            background: 'linear-gradient(90deg, #c9a227, #ffd700, #c9a227)',
+            marginBottom: '30px',
+            boxShadow: '0 0 10px #ffd700',
+          }}></div>
+
           <h1 style={{
             marginBottom: '10px',
             fontSize: '28px',
             fontWeight: 'bold',
-            background: 'linear-gradient(90deg, #667eea, #764ba2)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
+            color: '#ffd700',
+            textShadow: '3px 3px 0 #8b4513, -1px -1px 0 #8b4513, 1px -1px 0 #8b4513, -1px 1px 0 #8b4513',
+            letterSpacing: '2px',
+            fontFamily: 'Courier New, monospace',
           }}>
-            Sala: {lobby.id}
+            SALA: {lobby.id}
           </h1>
           <p style={{
             marginBottom: '30px',
             fontSize: '14px',
-            color: '#a0a0c0',
+            color: '#cd853f',
+            textTransform: 'uppercase',
+            letterSpacing: '2px',
+            fontWeight: 'bold',
           }}>
             Comparte este código con tus amigos
           </p>
@@ -731,7 +762,10 @@ export default function Home() {
             <h2 style={{
               marginBottom: '15px',
               fontSize: '18px',
-              color: '#b0b0d0',
+              color: '#deb887',
+              textTransform: 'uppercase',
+              letterSpacing: '1px',
+              fontWeight: 'bold',
             }}>
               Jugadores ({lobby.players.length}/3)
             </h2>
@@ -740,33 +774,35 @@ export default function Home() {
                 <li key={player.id} style={{
                   marginBottom: '12px',
                   padding: '15px',
-                  background: 'rgba(42, 42, 74, 0.8)',
-                  borderRadius: '10px',
-                  border: '1px solid rgba(100, 100, 150, 0.2)',
+                  background: 'rgba(42, 20, 10, 0.8)',
+                  border: '2px solid #8b4513',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
                 }}>
-                  <span style={{ fontSize: '16px' }}>
+                  <span style={{ fontSize: '16px', textTransform: 'uppercase' }}>
                     {player.name}
                     {player.id === lobby.hostId && (
                       <span style={{
                         marginLeft: '8px',
-                        fontSize: '12px',
-                        background: 'linear-gradient(135deg, #ffd700, #ffaa00)',
-                        color: '#0a0a1a',
-                        padding: '2px 8px',
-                        borderRadius: '4px',
+                        fontSize: '11px',
+                        background: 'linear-gradient(180deg, #c9a227 0%, #8b4513 100%)',
+                        color: '#000',
+                        padding: '3px 8px',
                         fontWeight: 'bold',
+                        textTransform: 'uppercase',
+                        letterSpacing: '1px',
                       }}>
                         ANFITRIÓN
                       </span>
                     )}
                   </span>
                   <span style={{
-                    fontSize: '14px',
-                    color: player.isReady ? '#667eea' : '#666',
+                    fontSize: '13px',
+                    color: player.isReady ? '#00ff00' : '#cd853f',
                     fontWeight: 'bold',
+                    textTransform: 'uppercase',
+                    letterSpacing: '1px',
                   }}>
                     {player.isReady ? 'LISTO' : 'ESPERANDO'}
                   </span>
@@ -779,26 +815,28 @@ export default function Home() {
             <button
               onClick={handlePlayerReady}
               style={{
-                padding: '14px 24px',
+                padding: '14px 20px',
                 background: lobby.players.find(p => p.id === socket?.id)?.isReady
-                  ? 'linear-gradient(135deg, #ff6b6b 0%, #ee5a5a 100%)'
-                  : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '12px',
+                  ? 'linear-gradient(180deg, #8b4513 0%, #5a2d0a 100%)'
+                  : 'linear-gradient(180deg, #c9a227 0%, #8b4513 100%)',
+                color: lobby.players.find(p => p.id === socket?.id)?.isReady ? '#ffd700' : '#000',
+                border: '3px solid #ffd700',
                 cursor: 'pointer',
                 fontSize: '16px',
                 fontWeight: 'bold',
-                transition: 'all 0.3s ease',
-                boxShadow: '0 4px 15px rgba(102, 126, 234, 0.3)',
+                transition: 'all 0.2s ease',
+                fontFamily: 'Courier New, monospace',
+                textTransform: 'uppercase',
+                letterSpacing: '2px',
+                boxShadow: '0 4px 0 #5a2d0a',
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.5)';
+                e.currentTarget.style.boxShadow = '0 6px 0 #5a2d0a';
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.3)';
+                e.currentTarget.style.boxShadow = '0 4px 0 #5a2d0a';
               }}
             >
               {lobby.players.find(p => p.id === socket?.id)?.isReady ? 'Cancelar' : 'Estoy Listo'}
@@ -808,29 +846,31 @@ export default function Home() {
                 onClick={handleStartGame}
                 disabled={!lobby.players.every(p => p.isReady)}
                 style={{
-                  padding: '14px 24px',
+                  padding: '14px 20px',
                   background: lobby.players.every(p => p.isReady)
-                    ? 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)'
-                    : 'linear-gradient(135deg, #666 0%, #444 100%)',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '12px',
+                    ? 'linear-gradient(180deg, #c9a227 0%, #8b4513 100%)'
+                    : 'linear-gradient(180deg, #4a4a4a 0%, #2a2a2a 100%)',
+                  color: lobby.players.every(p => p.isReady) ? '#000' : '#666',
+                  border: '3px solid #ffd700',
                   cursor: lobby.players.every(p => p.isReady) ? 'pointer' : 'not-allowed',
                   fontSize: '16px',
                   fontWeight: 'bold',
-                  transition: 'all 0.3s ease',
-                  boxShadow: '0 4px 15px rgba(240, 147, 251, 0.3)',
+                  transition: 'all 0.2s ease',
+                  fontFamily: 'Courier New, monospace',
+                  textTransform: 'uppercase',
+                  letterSpacing: '2px',
+                  boxShadow: '0 4px 0 #5a2d0a',
                   opacity: lobby.players.every(p => p.isReady) ? 1 : 0.5,
                 }}
                 onMouseEnter={(e) => {
                   if (lobby.players.every(p => p.isReady)) {
                     e.currentTarget.style.transform = 'translateY(-2px)';
-                    e.currentTarget.style.boxShadow = '0 6px 20px rgba(240, 147, 251, 0.5)';
+                    e.currentTarget.style.boxShadow = '0 6px 0 #5a2d0a';
                   }
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.transform = 'translateY(0)';
-                  e.currentTarget.style.boxShadow = '0 4px 15px rgba(240, 147, 251, 0.3)';
+                  e.currentTarget.style.boxShadow = '0 4px 0 #5a2d0a';
                 }}
               >
                 Iniciar Partida
@@ -842,11 +882,13 @@ export default function Home() {
             <div style={{
               marginTop: '20px',
               padding: '12px 16px',
-              background: 'rgba(255, 68, 68, 0.2)',
-              border: '1px solid #ff4444',
-              borderRadius: '8px',
+              background: 'rgba(139, 0, 0, 0.3)',
+              border: '2px solid #ff4444',
               color: '#ff6666',
               fontSize: '14px',
+              fontFamily: 'Courier New, monospace',
+              textTransform: 'uppercase',
+              fontWeight: 'bold',
             }}>
               {error}
             </div>
@@ -858,24 +900,33 @@ export default function Home() {
               marginTop: '20px',
               padding: '10px 20px',
               background: 'transparent',
-              color: '#8080a0',
-              border: '1px solid rgba(128, 128, 160, 0.3)',
-              borderRadius: '8px',
+              color: '#cd853f',
+              border: '2px solid #8b4513',
               cursor: 'pointer',
               fontSize: '14px',
-              transition: 'all 0.3s ease',
+              transition: 'all 0.2s ease',
+              fontFamily: 'Courier New, monospace',
+              textTransform: 'uppercase',
+              letterSpacing: '1px',
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.color = '#fff';
-              e.currentTarget.style.borderColor = '#fff';
+              e.currentTarget.style.color = '#ffd700';
+              e.currentTarget.style.borderColor = '#ffd700';
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.color = '#8080a0';
-              e.currentTarget.style.borderColor = 'rgba(128, 128, 160, 0.3)';
+              e.currentTarget.style.color = '#cd853f';
+              e.currentTarget.style.borderColor = '#8b4513';
             }}
           >
             Volver al menú
           </button>
+
+          <div style={{
+            height: '4px',
+            background: 'linear-gradient(90deg, #c9a227, #ffd700, #c9a227)',
+            marginTop: '30px',
+            boxShadow: '0 0 10px #ffd700',
+          }}></div>
         </div>
       </main>
     );
@@ -888,22 +939,36 @@ export default function Home() {
       justifyContent: 'center',
       alignItems: 'center',
       height: '100vh',
-      background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
+      backgroundImage: 'url(/portada.png)',
+      backgroundSize: 'cover',
+      backgroundPosition: 'center',
+      backgroundRepeat: 'no-repeat',
       margin: 0,
       padding: 0,
-      fontFamily: 'Arial, sans-serif',
+      fontFamily: 'Courier New, monospace',
+      position: 'relative',
     }}>
       <div style={{
-        background: 'rgba(26, 26, 46, 0.95)',
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: 'rgba(0, 0, 0, 0.7)',
+        zIndex: 0,
+      }}></div>
+      <div style={{
+        position: 'relative',
+        zIndex: 1,
+        background: 'rgba(30, 20, 10, 0.95)',
         padding: '15px 40px',
-        borderRadius: '15px',
+        border: '3px solid #8b4513',
         marginBottom: '20px',
         display: 'flex',
         gap: '40px',
         color: '#fff',
         fontSize: '16px',
-        border: '2px solid rgba(100, 100, 150, 0.3)',
-        boxShadow: '0 10px 30px rgba(0, 0, 0, 0.3)',
+        boxShadow: '0 0 30px rgba(139, 69, 19, 0.5)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <div style={{
@@ -912,10 +977,13 @@ export default function Home() {
             background: '#ff6b6b',
             borderRadius: '50%',
           }}></div>
-          <span><strong>HP:</strong> {lobby?.gameState?.players[socket?.id ?? '']?.hp || 100} / {lobby?.gameState?.players[socket?.id ?? '']?.maxHp || 100}</span>
+          <span style={{ color: '#ffd700' }}><strong>HP:</strong> {lobby?.gameState?.players[socket?.id ?? '']?.hp || 100} / {lobby?.gameState?.players[socket?.id ?? '']?.maxHp || 100}</span>
         </div>
-        <div style={{ fontSize: '14px', color: '#8080a0' }}>
-          Mazmorra de Hierro
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ color: '#ffd700' }}><strong>Nivel:</strong> {lobby?.gameState?.floor || 1}/10</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ color: '#ffd700' }}><strong>Oro:</strong> {lobby?.gameState?.players[socket?.id ?? '']?.gold || 0}</span>
         </div>
       </div>
       <canvas
@@ -923,47 +991,36 @@ export default function Home() {
         width={800}
         height={450}
         style={{
-          border: '3px solid rgba(100, 100, 150, 0.3)',
+          border: '4px solid #8b4513',
           borderRadius: '10px',
           background: '#0f0f1a',
           boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
+          imageRendering: 'pixelated',
         }}
       />
 
       <div style={{
         marginTop: '20px',
-        background: 'linear-gradient(135deg, #3d3d5c 0%, #2d2d44 100%)',
+        background: 'rgba(30, 20, 10, 0.95)',
         padding: '25px 30px',
-        borderRadius: '10px',
-        border: '4px solid #5a5a6a',
+        border: '4px solid #8b4513',
         boxShadow: '0 10px 30px rgba(0, 0, 0, 0.5)',
         maxWidth: '800px',
         width: '100%',
         position: 'relative',
       }}>
         <div style={{
-          position: 'absolute',
-          top: '-4px',
-          left: '-4px',
-          right: '-4px',
-          bottom: '-4px',
-          border: '2px solid #8a8a9a',
-          borderRadius: '10px',
-          pointerEvents: 'none',
-        }}></div>
-
-        <div style={{
           marginBottom: '20px',
           padding: '15px',
-          background: 'rgba(0, 0, 0, 0.4)',
-          borderRadius: '5px',
-          border: '2px solid #5a5a6a',
+          background: 'rgba(20, 10, 5, 0.8)',
+          border: '2px solid #8b4513',
           minHeight: '50px',
-          color: '#e0e0e0',
+          color: '#ffd700',
           fontSize: '14px',
-          fontFamily: 'monospace',
+          fontFamily: 'Courier New, monospace',
+          textTransform: 'uppercase',
         }}>
-          {combatLog.length > 0 ? combatLog[combatLog.length - 1] : '¡El Minotauro de Mazmorra te desafía! Elige tu acción.'}
+          {combatLog.length > 0 ? combatLog[combatLog.length - 1] : '¡El Boss te desafía! Elige tu acción.'}
         </div>
 
         <div style={{
@@ -976,29 +1033,208 @@ export default function Home() {
             style={{
               padding: '18px',
               background: selectedAttack === null
-                ? 'linear-gradient(135deg, #c9a227 0%, #a8861f 100%)'
-                : 'linear-gradient(135deg, #4a4a6a 0%, #3a3a5a 100%)',
-              color: '#fff',
+                ? 'linear-gradient(180deg, #c9a227 0%, #8b4513 100%)'
+                : 'linear-gradient(180deg, #2a1a0a 0%, #1a0a00 100%)',
+              color: selectedAttack === null ? '#000' : '#deb887',
               border: selectedAttack === null
                 ? '3px solid #ffd700'
-                : '3px solid #5a5a6a',
-              borderRadius: '5px',
+                : '3px solid #8b4513',
               cursor: 'pointer',
               fontSize: '14px',
               fontWeight: 'bold',
-              transition: 'all 0.3s ease',
-              fontFamily: 'monospace',
-              textShadow: '1px 1px 2px rgba(0, 0, 0, 0.5)',
+              transition: 'all 0.2s ease',
+              fontFamily: 'Courier New, monospace',
+              textTransform: 'uppercase',
+              boxShadow: '0 4px 0 #5a2d0a',
+            }}
+            onMouseEnter={(e) => {
+              if (selectedAttack !== null) {
+                e.currentTarget.style.borderColor = '#ffd700';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (selectedAttack !== null) {
+                e.currentTarget.style.borderColor = '#8b4513';
+              }
             }}
           >
-            [ATACAR]
+            ATACAR
+          </button>
+          <button
+            onClick={() => setSelectedAttack('shop')}
+            style={{
+              padding: '18px',
+              background: selectedAttack === 'shop'
+                ? 'linear-gradient(180deg, #c9a227 0%, #8b4513 100%)'
+                : 'linear-gradient(180deg, #2a1a0a 0%, #1a0a00 100%)',
+              color: selectedAttack === 'shop' ? '#000' : '#deb887',
+              border: selectedAttack === 'shop'
+                ? '3px solid #ffd700'
+                : '3px solid #8b4513',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: 'bold',
+              transition: 'all 0.2s ease',
+              fontFamily: 'Courier New, monospace',
+              textTransform: 'uppercase',
+              boxShadow: '0 4px 0 #5a2d0a',
+            }}
+            onMouseEnter={(e) => {
+              if (selectedAttack !== 'shop') {
+                e.currentTarget.style.borderColor = '#ffd700';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (selectedAttack !== 'shop') {
+                e.currentTarget.style.borderColor = '#8b4513';
+              }
+            }}
+          >
+            TIENDA
           </button>
           <button
             disabled
             style={{
               padding: '18px',
-              background: 'linear-gradient(135deg, #3a3a5a 0%, #2a2a4a 100%)',
+              background: 'linear-gradient(180deg, #1a1a1a 0%, #0a0a0a 100%)',
               color: '#666',
+              border: '3px solid #3a3a3a',
+              cursor: 'not-allowed',
+              fontSize: '14px',
+              fontWeight: 'bold',
+              fontFamily: 'Courier New, monospace',
+              textTransform: 'uppercase',
+            }}
+          >
+            OBJETO
+          </button>
+          <button
+            disabled
+            style={{
+              padding: '18px',
+              background: 'linear-gradient(180deg, #1a1a1a 0%, #0a0a0a 100%)',
+              color: '#666',
+              border: '3px solid #3a3a3a',
+              cursor: 'not-allowed',
+              fontSize: '14px',
+              fontWeight: 'bold',
+              fontFamily: 'Courier New, monospace',
+              textTransform: 'uppercase',
+            }}
+          >
+            HUIR
+          </button>
+        </div>
+
+        {selectedAttack === null && (
+          <div style={{
+            marginTop: '20px',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(5, 1fr)',
+            gap: '10px',
+          }}>
+            {(() => {
+              const playerClass = lobby?.gameState?.players[socket?.id ?? '']?.characterClass || 'warrior';
+              const playerInventory = lobby?.gameState?.players[socket?.id ?? '']?.inventory || [];
+              const attacks = ATTACKS[playerClass as keyof typeof ATTACKS] || ATTACKS.warrior;
+              return attacks.filter(a => a.unlocked || playerInventory.includes(a.id)).map((attack) => (
+                <button
+                  key={attack.id}
+                  onClick={() => handleAttack(attack.id)}
+                  style={{
+                    padding: '12px',
+                    background: 'linear-gradient(180deg, #2a1a0a 0%, #1a0a00 100%)',
+                    color: '#deb887',
+                    border: '3px solid #8b4513',
+                    cursor: 'pointer',
+                    fontSize: '11px',
+                    transition: 'all 0.2s ease',
+                    textAlign: 'left',
+                    fontFamily: 'Courier New, monospace',
+                    textTransform: 'uppercase',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = '#ffd700';
+                    e.currentTarget.style.background = 'linear-gradient(180deg, #3a2a1a 0%, #2a1a0a 100%)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = '#8b4513';
+                    e.currentTarget.style.background = 'linear-gradient(180deg, #2a1a0a 0%, #1a0a00 100%)';
+                  }}
+                >
+                  <div style={{ fontWeight: 'bold', marginBottom: '4px', color: '#ffd700' }}>{attack.name}</div>
+                  <div style={{ opacity: 0.9 }}>Daño: {attack.damageMin}-{attack.damageMax}</div>
+                  <div style={{ opacity: 0.9 }}>Precisión: {attack.accuracy}%</div>
+                </button>
+              ));
+            })()}
+          </div>
+        )}
+
+        {selectedAttack === 'shop' && (
+          <div style={{
+            marginTop: '20px',
+            maxHeight: '300px',
+            overflowY: 'auto',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, 1fr)',
+            gap: '10px',
+          }}>
+            {(() => {
+              const playerClass = lobby?.gameState?.players[socket?.id ?? '']?.characterClass || 'warrior';
+              const playerGold = lobby?.gameState?.players[socket?.id ?? '']?.gold || 0;
+              const playerInventory = lobby?.gameState?.players[socket?.id ?? '']?.inventory || [];
+              const attacks = ATTACKS[playerClass as keyof typeof ATTACKS] || ATTACKS.warrior;
+              return attacks.filter(a => !a.unlocked && !playerInventory.includes(a.id)).map((attack) => (
+                <button
+                  key={attack.id}
+                  disabled={playerGold < (attack.cost || 0)}
+                  onClick={() => {
+                    if (playerGold >= (attack.cost || 0)) {
+                      socket?.emit('buy_attack', { lobbyId: lobby?.id, attackId: attack.id });
+                    }
+                  }}
+                  style={{
+                    padding: '12px',
+                    background: playerGold >= (attack.cost || 0)
+                      ? 'linear-gradient(180deg, #2a1a0a 0%, #1a0a00 100%)'
+                      : 'linear-gradient(180deg, #1a1a1a 0%, #0a0a0a 100%)',
+                    color: playerGold >= (attack.cost || 0) ? '#deb887' : '#666',
+                    border: playerGold >= (attack.cost || 0)
+                      ? '3px solid #8b4513'
+                      : '3px solid #3a3a3a',
+                    cursor: playerGold >= (attack.cost || 0) ? 'pointer' : 'not-allowed',
+                    fontSize: '11px',
+                    transition: 'all 0.2s ease',
+                    textAlign: 'left',
+                    fontFamily: 'Courier New, monospace',
+                    textTransform: 'uppercase',
+                    opacity: playerGold >= (attack.cost || 0) ? 1 : 0.5,
+                  }}
+                  onMouseEnter={(e) => {
+                    if (playerGold >= (attack.cost || 0)) {
+                      e.currentTarget.style.borderColor = '#ffd700';
+                      e.currentTarget.style.background = 'linear-gradient(180deg, #3a2a1a 0%, #2a1a0a 100%)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (playerGold >= (attack.cost || 0)) {
+                      e.currentTarget.style.borderColor = '#8b4513';
+                      e.currentTarget.style.background = 'linear-gradient(180deg, #2a1a0a 0%, #1a0a00 100%)';
+                    }
+                  }}
+                >
+                  <div style={{ fontWeight: 'bold', marginBottom: '4px', color: '#ffd700' }}>{attack.name}</div>
+                  <div style={{ opacity: 0.9 }}>Daño: {attack.damageMin}-{attack.damageMax}</div>
+                  <div style={{ opacity: 0.9 }}>Precisión: {attack.accuracy}%</div>
+                  <div style={{ fontWeight: 'bold', color: '#ffd700', marginTop: '4px' }}>
+                    Costo: {attack.cost} oro
+                  </div>
+                </button>
+              ));
+            })()}
+          </div>
+        )}
               border: '3px solid #4a4a6a',
               borderRadius: '5px',
               cursor: 'not-allowed',
@@ -1039,53 +1275,9 @@ export default function Home() {
               fontFamily: 'monospace',
             }}
           >
-            [HUIR]
+            HUIR
           </button>
         </div>
-
-        {selectedAttack === null && (
-          <div style={{
-            marginTop: '20px',
-            display: 'grid',
-            gridTemplateColumns: 'repeat(3, 1fr)',
-            gap: '12px',
-          }}>
-            {(() => {
-              const playerClass = lobby?.gameState?.players[socket?.id ?? '']?.characterClass || 'warrior';
-              const attacks = ATTACKS[playerClass as keyof typeof ATTACKS] || ATTACKS.warrior;
-              return attacks.map((attack) => (
-                <button
-                  key={attack.id}
-                  onClick={() => handleAttack(attack.id)}
-                  style={{
-                    padding: '15px',
-                    background: 'linear-gradient(135deg, #4a4a6a 0%, #3a3a5a 100%)',
-                    color: '#e0e0e0',
-                    border: '3px solid #5a5a6a',
-                    borderRadius: '5px',
-                    cursor: 'pointer',
-                    fontSize: '12px',
-                    transition: 'all 0.3s ease',
-                    textAlign: 'left',
-                    fontFamily: 'monospace',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = '#c9a227';
-                    e.currentTarget.style.background = 'linear-gradient(135deg, #5a5a7a 0%, #4a4a6a 100%)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = '#5a5a6a';
-                    e.currentTarget.style.background = 'linear-gradient(135deg, #4a4a6a 0%, #3a3a5a 100%)';
-                  }}
-                >
-                  <div style={{ fontWeight: 'bold', marginBottom: '6px', color: '#ffd700' }}>[{attack.name}]</div>
-                  <div style={{ opacity: 0.9 }}>Daño: {attack.damageMin}-{attack.damageMax}</div>
-                  <div style={{ opacity: 0.9 }}>Precisión: {attack.accuracy}%</div>
-                </button>
-              ));
-            })()}
-          </div>
-        )}
       </div>
       {isGameOver && (
         <div style={{
