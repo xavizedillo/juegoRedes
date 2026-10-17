@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "description": "RogueWeb: Echoes of the Grid - 2D Roguelike Multiplayer Game",
   "scripts": {
-    "dev": "next dev",
+    "dev": "concurrently \"next dev\" \"tsx server/index.ts\"",
     "build": "next build",
     "start": "next start",
-    "server": "ts-node server/index.ts",
+    "server": "tsx --tsconfig tsconfig.server.json server/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest"
   },
@@ -36,8 +36,10 @@
     "@types/react": "^19.0.1",
     "@types/react-dom": "^19.0.2",
     "@vitest/ui": "^5.0.5",
+    "concurrently": "^10.0.6",
     "ts-node": "^10.9.2",
-    "typescript": "^7.0.2",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
     "vitest": "^5.0.5"
   }
 }

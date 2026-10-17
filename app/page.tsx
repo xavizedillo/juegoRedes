@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { generateMap, TILE, isWalkable, type MapData } from '../../shared/mapGenerator';
-import type { Lobby, Boss } from '../../shared/types';
+import { TILE, type MapData } from '../shared/mapGenerator';
+import type { Lobby, Boss } from '../shared/types';
 
 const TILE_SIZE = 30;
 const MAP_WIDTH = 20;
@@ -29,7 +29,7 @@ export default function Home() {
   const [lobbyCode, setLobbyCode] = useState('');
   const [error, setError] = useState('');
   const [boss, setBoss] = useState<Boss | null>(null);
-  const animationRef = useRef<number>();
+  const animationRef = useRef<number>(0);
 
   useEffect(() => {
     const newSocket = io('http://localhost:3001');

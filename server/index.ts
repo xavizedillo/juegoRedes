@@ -107,7 +107,7 @@ io.on('connection', (socket) => {
     }
 
     const map = generateMap(20, 20);
-    activeMaps.set(lobbyId, map);
+    activeMaps.set(data.lobbyId, map);
     const playersState: Record<string, any> = {};
 
     for (const player of lobby.players) {
@@ -132,7 +132,7 @@ io.on('connection', (socket) => {
     };
 
     const boss = calculateBossStats(lobby.players.length);
-    activeBosses.set(lobbyId, boss);
+    activeBosses.set(data.lobbyId, boss);
 
     io.to(data.lobbyId).emit('game_started', { lobby, map, boss });
   });
@@ -183,7 +183,7 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const result = processCombatTurn(player, boss, data.action);
+    processCombatTurn(player, boss, data.action);
     activeBosses.set(data.lobbyId, boss);
 
     io.to(data.lobbyId).emit('game_state_update', { gameState: lobby.gameState, boss });

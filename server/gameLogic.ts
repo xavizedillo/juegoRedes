@@ -1,5 +1,5 @@
 import type { MapData } from '../shared/mapGenerator';
-import { TILE, isWalkable } from '../shared/mapGenerator';
+import { isWalkable } from '../shared/mapGenerator';
 
 export interface PlayerState {
   id: string;

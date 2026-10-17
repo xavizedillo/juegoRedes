@@ -1,7 +1,9 @@
 {
   "compilerOptions": {
     "target": "ES2020",
-    "lib": ["ES2020"],
+    "lib": [
+      "ES2020"
+    ],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
@@ -21,9 +23,26 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "paths": {
-      "@shared/*": ["./shared/*"]
-    }
+      "@shared/*": [
+        "./shared/*"
+      ]
+    },
+    "noEmit": true,
+    "incremental": true,
+    "jsx": "preserve",
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ]
   },
-  "include": ["shared", "server"],
-  "exclude": ["node_modules", "client"]
+  "include": [
+    "server",
+    "shared",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "client"
+  ]
 }
