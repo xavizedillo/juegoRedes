@@ -8,6 +8,8 @@ import { CHARACTERS, TOTAL_LEVELS, getCharacter } from '../shared/battleData';
 import CharacterSelect from './components/CharacterSelect';
 import BattleScreen from './components/BattleScreen';
 import ShopScreen from './components/ShopScreen';
+import { MusicToggle, useMusic } from './components/useMusic';
+import { musicTrack } from '../shared/musicData';
 
 const TILE_SIZE = 30;
 const MAP_WIDTH = 20;
@@ -41,6 +43,9 @@ export default function Home() {
   const [currentFloor, setCurrentFloor] = useState(1);
   const [isGameOver, setIsGameOver] = useState(false);
   const [gameStatus, setGameStatus] = useState<'VICTORY' | 'GAME_OVER' | 'PLAYING'>('PLAYING');
+  const music = useMusic(
+    musicTrack(view, gameStatus !== 'PLAYING' ? gameStatus : lobby?.gameState?.phase, lobby?.gameState?.floor ?? 1)
+  );
 
   useEffect(() => {
     lobbyRef.current = lobby;
@@ -381,6 +386,7 @@ export default function Home() {
         color: '#fff',
         fontFamily: 'Courier New, monospace',
       }}>
+        <MusicToggle muted={music.muted} onToggle={music.toggleMuted} />
         <div style={{
           background: 'rgba(30, 20, 10, 0.95)',
           padding: '50px 60px',
@@ -587,6 +593,7 @@ export default function Home() {
         color: '#fff',
         fontFamily: 'Courier New, monospace',
       }}>
+        <MusicToggle muted={music.muted} onToggle={music.toggleMuted} />
         <div style={{
           background: 'rgba(30, 20, 10, 0.95)',
           padding: '40px 50px',
@@ -832,6 +839,7 @@ export default function Home() {
       padding: '20px 0',
       fontFamily: 'Courier New, monospace',
     }}>
+      <MusicToggle muted={music.muted} onToggle={music.toggleMuted} />
       <div style={{
         background: 'rgba(30, 20, 10, 0.95)',
         padding: '15px 40px',
