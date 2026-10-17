@@ -4,30 +4,76 @@ export const LobbyPlayerSchema = z.object({
   id: z.string(),
   name: z.string(),
   isReady: z.boolean(),
+  characterId: z.string().optional(),
 });
 
 export type LobbyPlayer = z.infer<typeof LobbyPlayerSchema>;
+
+export const PlayerStateSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  characterId: z.string(),
+  x: z.number(),
+  y: z.number(),
+  hp: z.number(),
+  maxHp: z.number(),
+  energy: z.number(),
+  maxEnergy: z.number(),
+  level: z.number(),
+  exp: z.number(),
+  gold: z.number(),
+  inventory: z.array(z.string()),
+  attacks: z.array(z.string()),
+  shield: z.number(),
+  defending: z.boolean(),
+});
+
+export type PlayerState = z.infer<typeof PlayerStateSchema>;
+
+export const BossStateSchema = z.object({
+  level: z.number(),
+  name: z.string(),
+  title: z.string(),
+  hp: z.number(),
+  maxHp: z.number(),
+  attack: z.number(),
+  stunned: z.boolean(),
+});
+
+export type BossState = z.infer<typeof BossStateSchema>;
+export type Boss = BossState;
+
+export const CombatLogEntrySchema = z.object({
+  id: z.number(),
+  text: z.string(),
+  kind: z.enum(['player', 'boss', 'info']),
+});
+
+export type CombatLogEntry = z.infer<typeof CombatLogEntrySchema>;
+
+export const GamePhaseSchema = z.enum(['EXPLORE', 'COMBAT', 'SHOP', 'VICTORY', 'GAME_OVER']);
+
+export type GamePhase = z.infer<typeof GamePhaseSchema>;
+
+export const GameStateSchema = z.object({
+  floor: z.number(),
+  players: z.record(PlayerStateSchema),
+  currentTurnPlayerId: z.string().nullable(),
+  phase: GamePhaseSchema,
+  boss: BossStateSchema.nullable(),
+  combatLog: z.array(CombatLogEntrySchema),
+  turn: z.number(),
+  bossesDefeated: z.number(),
+  shopReady: z.array(z.string()),
+});
+
+export type GameState = z.infer<typeof GameStateSchema>;
 
 export const LobbySchema = z.object({
   id: z.string(),
   players: z.array(LobbyPlayerSchema),
   hostId: z.string(),
-  gameState: z.object({
-    floor: z.number(),
-    players: z.record(z.object({
-      id: z.string(),
-      x: z.number(),
-      y: z.number(),
-      hp: z.number(),
-      maxHp: z.number(),
-      level: z.number(),
-      exp: z.number(),
-      gold: z.number(),
-      inventory: z.array(z.string()),
-    })),
-    currentTurnPlayerId: z.string().nullable(),
-    phase: z.enum(['EXPLORE', 'COMBAT', 'SHOP']),
-  }).nullable(),
+  gameState: GameStateSchema.nullable(),
 });
 
 export type Lobby = z.infer<typeof LobbySchema>;
@@ -60,9 +106,3 @@ export type StartGameEvent = z.infer<typeof StartGameEventSchema>;
 
 export type TileType = 0 | 1 | 2 | 3;
 export type MapData = number[][];
-
-export interface Boss {
-  hp: number;
-  maxHp: number;
-  attack: number;
-}

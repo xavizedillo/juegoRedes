@@ -3,7 +3,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { TILE, type MapData } from '../shared/mapGenerator';
-import type { Lobby, Boss } from '../shared/types';
+import type { Lobby, GameState } from '../shared/types';
+import { CHARACTERS, TOTAL_LEVELS, getCharacter } from '../shared/battleData';
+import CharacterSelect from './components/CharacterSelect';
+import BattleScreen from './components/BattleScreen';
+import ShopScreen from './components/ShopScreen';
+import { MusicToggle, useMusic } from './components/useMusic';
+import { musicTrack } from '../shared/musicData';
 
 const TILE_SIZE = 30;
 const MAP_WIDTH = 20;
@@ -28,13 +34,22 @@ export default function Home() {
   const [playerName, setPlayerName] = useState('');
   const [lobbyCode, setLobbyCode] = useState('');
   const [error, setError] = useState('');
-  const [boss, setBoss] = useState<Boss | null>(null);
+  const [connected, setConnected] = useState(false);
+  const [menuCharacter, setMenuCharacter] = useState<string>(CHARACTERS[0]!.id);
   const animationRef = useRef<number>(0);
-  const [gameStartTime, setGameStartTime] = useState<number>(0);
+  const gameStartTimeRef = useRef<number>(0);
+  const lobbyRef = useRef<Lobby | null>(null);
   const [goldCollected, setGoldCollected] = useState(0);
   const [currentFloor, setCurrentFloor] = useState(1);
   const [isGameOver, setIsGameOver] = useState(false);
   const [gameStatus, setGameStatus] = useState<'VICTORY' | 'GAME_OVER' | 'PLAYING'>('PLAYING');
+  const music = useMusic(
+    musicTrack(view, gameStatus !== 'PLAYING' ? gameStatus : lobby?.gameState?.phase, lobby?.gameState?.floor ?? 1)
+  );
+
+  useEffect(() => {
+    lobbyRef.current = lobby;
+  }, [lobby]);
 
   useEffect(() => {
     const newSocket = io('http://localhost:3001', {
@@ -43,10 +58,12 @@ export default function Home() {
     setSocket(newSocket);
 
     newSocket.on('connect', () => {
+      setConnected(true);
       console.log('✅ Conectado al servidor Socket.io');
     });
 
     newSocket.on('disconnect', () => {
+      setConnected(false);
       console.log('❌ Desconectado del servidor Socket.io');
     });
 
@@ -65,52 +82,52 @@ export default function Home() {
       setLobby(updatedLobby);
     });
 
-    newSocket.on('game_started', (data: { lobby: Lobby; map: MapData; boss: Boss }) => {
+    const applyGameState = (gameState: GameState) => {
+      setLobby((prev) => (prev ? { ...prev, gameState } : prev));
+      const playerData = gameState.players[newSocket.id ?? ''];
+      if (playerData) {
+        setPlayer({ x: playerData.x, y: playerData.y });
+        setGoldCollected(playerData.gold || 0);
+      }
+      setCurrentFloor(gameState.floor || 1);
+    };
+
+    newSocket.on('game_started', (data: { lobby: Lobby; map: MapData }) => {
       setLobby(data.lobby);
       setMap(data.map);
-      setBoss(data.boss);
       setView('game');
-      setGameStartTime(Date.now());
+      gameStartTimeRef.current = Date.now();
       setGoldCollected(0);
       setCurrentFloor(1);
       setIsGameOver(false);
       setGameStatus('PLAYING');
     });
 
-    newSocket.on('game_state_update', (data: { gameState: any; boss?: Boss }) => {
-      if (lobby) {
-        setLobby({ ...lobby, gameState: data.gameState });
-      }
-      if (data.boss) {
-        setBoss(data.boss);
-      }
-      if (data.gameState?.players[socket?.id ?? '']) {
-        const playerData = data.gameState.players[socket?.id ?? ''];
-        setPlayer({
-          x: playerData.x,
-          y: playerData.y,
-        });
-        setGoldCollected(playerData.gold || 0);
-        setCurrentFloor(data.gameState.floor || 1);
-      }
+    newSocket.on('game_state_update', (data: { gameState: GameState }) => {
+      applyGameState(data.gameState);
     });
 
-    newSocket.on('game_completed', async (data: { winner: string; gameState: any }) => {
-      setIsGameOver(true);
-      const playtimeMinutes = Math.floor((Date.now() - gameStartTime) / 60000);
-      const status = data.winner === socket?.id ? 'VICTORY' : 'GAME_OVER';
+    newSocket.on('floor_started', (data: { map: MapData; gameState: GameState }) => {
+      setMap(data.map);
+      applyGameState(data.gameState);
+    });
 
-      setGameStatus(status);
+    newSocket.on('game_completed', async (data: { status: 'VICTORY' | 'GAME_OVER'; gameState: GameState }) => {
+      setIsGameOver(true);
+      setGameStatus(data.status);
+      const myId = newSocket.id ?? 'unknown';
+      const me = data.gameState.players[myId];
+      const playtimeMinutes = Math.floor((Date.now() - gameStartTimeRef.current) / 60000);
 
       const telemetryData = {
-        playerId: socket?.id || 'unknown',
-        partySize: lobby?.players.length || 1,
+        playerId: myId,
+        partySize: Object.keys(data.gameState.players).length || 1,
         floorReached: data.gameState.floor || 1,
-        bossesDefeated: 0,
-        goldCollected: goldCollected,
-        status: status,
+        bossesDefeated: data.gameState.bossesDefeated,
+        goldCollected: me?.gold ?? 0,
+        status: data.status,
         playtimeMinutes: playtimeMinutes,
-        inventory: data.gameState.players[socket?.id ?? '']?.inventory || {},
+        inventory: { characterId: me?.characterId ?? null, attacks: me?.attacks ?? [] },
       };
 
       try {
@@ -148,7 +165,7 @@ export default function Home() {
     if (!canvas || view !== 'game') return;
 
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    if (!ctx || map.length === 0) return;
 
     const render = () => {
       ctx.fillStyle = '#0f0f1a';
@@ -164,8 +181,8 @@ export default function Home() {
       }
 
       if (lobby?.gameState?.players) {
-        Object.values(lobby.gameState.players).forEach((p: any) => {
-          ctx.fillStyle = p.id === socket?.id ? COLORS.PLAYER : '#ff8800';
+        Object.values(lobby.gameState.players).forEach((p) => {
+          ctx.fillStyle = getCharacter(p.characterId).color;
           ctx.beginPath();
           ctx.arc(
             p.x * TILE_SIZE + TILE_SIZE / 2,
@@ -175,6 +192,12 @@ export default function Home() {
             Math.PI * 2
           );
           ctx.fill();
+          if (p.id === socket?.id) {
+            ctx.strokeStyle = COLORS.PLAYER;
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            ctx.lineWidth = 1;
+          }
         });
       }
 
@@ -188,7 +211,7 @@ export default function Home() {
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [map, player, view]);
+  }, [map, player, view, lobby]);
 
   useEffect(() => {
     if (view !== 'game') return;
@@ -222,7 +245,8 @@ export default function Home() {
           return;
       }
 
-      const currentPlayer = lobby?.gameState?.players[socket?.id ?? ''];
+      if (lobby?.gameState?.phase !== 'EXPLORE') return;
+      const currentPlayer = lobby.gameState.players[socket?.id ?? ''];
       console.log('Tecla presionada:', e.key, { dx, dy });
       console.log('Posición actual del jugador (cliente):', currentPlayer);
 
@@ -253,7 +277,7 @@ export default function Home() {
       setError('Por favor ingresa tu nombre');
       return;
     }
-    socket?.emit('create_lobby', { playerName });
+    socket?.emit('create_lobby', { playerName, characterId: menuCharacter });
   };
 
   const handleJoinLobby = () => {
@@ -270,7 +294,7 @@ export default function Home() {
     }
 
     console.log('Intentando unirse a sala:', { lobbyId: cleanCode, playerName: cleanName });
-    socket?.emit('join_lobby', { lobbyId: cleanCode, playerName: cleanName });
+    socket?.emit('join_lobby', { lobbyId: cleanCode, playerName: cleanName, characterId: menuCharacter });
   };
 
   const handlePlayerReady = () => {
@@ -282,6 +306,36 @@ export default function Home() {
   const handleStartGame = () => {
     if (lobby) {
       socket?.emit('start_game', { lobbyId: lobby.id });
+    }
+  };
+
+  const handleSelectCharacter = (characterId: string) => {
+    if (lobby) {
+      socket?.emit('select_character', { lobbyId: lobby.id, characterId });
+    }
+  };
+
+  const handleAttack = (attackId: string) => {
+    if (lobby) {
+      socket?.emit('combat_action', { lobbyId: lobby.id, action: 'attack', attackId });
+    }
+  };
+
+  const handleDefend = () => {
+    if (lobby) {
+      socket?.emit('combat_action', { lobbyId: lobby.id, action: 'defend' });
+    }
+  };
+
+  const handleBuyAttack = (attackId: string) => {
+    if (lobby) {
+      socket?.emit('buy_attack', { lobbyId: lobby.id, attackId });
+    }
+  };
+
+  const handleShopReady = () => {
+    if (lobby) {
+      socket?.emit('shop_ready', { lobbyId: lobby.id });
     }
   };
 
@@ -306,7 +360,8 @@ export default function Home() {
         return;
     }
 
-    const currentPlayer = lobby?.gameState?.players[socket?.id ?? ''];
+    if (lobby?.gameState?.phase !== 'EXPLORE') return;
+    const currentPlayer = lobby.gameState.players[socket?.id ?? ''];
     if (!currentPlayer) return;
 
     const newX = currentPlayer.x + dx;
@@ -325,67 +380,36 @@ export default function Home() {
         justifyContent: 'center',
         alignItems: 'center',
         height: '100vh',
-        background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
+        background: 'linear-gradient(rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.7)), url(/portada.png) center / cover no-repeat',
         margin: 0,
         padding: 0,
         color: '#fff',
-        fontFamily: 'Arial, sans-serif',
+        fontFamily: 'Courier New, monospace',
       }}>
+        <MusicToggle muted={music.muted} onToggle={music.toggleMuted} />
         <div style={{
-          background: 'rgba(26, 26, 46, 0.95)',
+          background: 'rgba(30, 20, 10, 0.95)',
           padding: '50px 60px',
-          borderRadius: '20px',
+          borderRadius: '4px',
           textAlign: 'center',
           boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
-          border: '2px solid rgba(100, 100, 150, 0.3)',
-          maxWidth: '400px',
+          border: '2px solid rgba(139, 69, 19, 0.3)',
+          maxWidth: '520px',
           width: '100%',
         }}>
-          <div style={{
-            width: '80px',
-            height: '80px',
-            margin: '0 auto 20px',
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-            borderRadius: '20px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: '0 10px 30px rgba(102, 126, 234, 0.3)',
-          }}>
-            <div style={{
-              width: '40px',
-              height: '40px',
-              background: '#fff',
-              borderRadius: '8px',
-              transform: 'rotate(45deg)',
-            }}></div>
-          </div>
-          <h1 style={{
-            marginBottom: '10px',
-            fontSize: '32px',
-            fontWeight: 'bold',
-            background: 'linear-gradient(90deg, #667eea, #764ba2)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-          }}>
-            RogueWeb
-          </h1>
-          <p style={{
-            marginBottom: '30px',
-            fontSize: '14px',
-            color: '#a0a0c0',
-            textTransform: 'uppercase',
-            letterSpacing: '2px',
-          }}>
-            Ecos de la Red
-          </p>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/logotipo.png"
+            alt="RogueWeb"
+            style={{ width: '100%', maxWidth: '350px', marginBottom: '20px', imageRendering: 'pixelated' }}
+          />
 
           <div style={{ marginBottom: '25px' }}>
             <label style={{
               display: 'block',
               marginBottom: '8px',
               fontSize: '14px',
-              color: '#b0b0d0',
+              color: '#deb887',
               textAlign: 'left',
             }}>
               Tu Nombre
@@ -402,8 +426,8 @@ export default function Home() {
                 width: '100%',
                 padding: '14px 16px',
                 borderRadius: '10px',
-                border: '2px solid rgba(100, 100, 150, 0.3)',
-                background: 'rgba(20, 20, 40, 0.8)',
+                border: '2px solid rgba(139, 69, 19, 0.3)',
+                background: 'rgba(20, 10, 5, 0.9)',
                 color: '#fff',
                 fontSize: '16px',
                 outline: 'none',
@@ -411,14 +435,21 @@ export default function Home() {
                 boxSizing: 'border-box',
               }}
               onFocus={(e) => {
-                e.target.style.borderColor = '#667eea';
-                e.target.style.boxShadow = '0 0 15px rgba(102, 126, 234, 0.3)';
+                e.target.style.borderColor = '#c9a227';
+                e.target.style.boxShadow = '0 0 15px rgba(201, 162, 39, 0.3)';
               }}
               onBlur={(e) => {
-                e.target.style.borderColor = 'rgba(100, 100, 150, 0.3)';
+                e.target.style.borderColor = 'rgba(139, 69, 19, 0.3)';
                 e.target.style.boxShadow = 'none';
               }}
             />
+          </div>
+
+          <div style={{ marginBottom: '25px', textAlign: 'left' }}>
+            <div style={{ marginBottom: '8px', fontSize: '14px', color: '#deb887', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px' }}>
+              Elige tu personaje
+            </div>
+            <CharacterSelect selectedId={menuCharacter} onSelect={setMenuCharacter} />
           </div>
 
           <div style={{ marginBottom: '30px' }}>
@@ -426,10 +457,10 @@ export default function Home() {
               display: 'block',
               marginBottom: '8px',
               fontSize: '14px',
-              color: '#b0b0d0',
+              color: '#deb887',
               textAlign: 'left',
             }}>
-              Código de Sala <span style={{ fontSize: '12px', color: '#707090' }}>(opcional)</span>
+              Código de Sala <span style={{ fontSize: '12px', color: '#b08a5a' }}>(opcional)</span>
             </label>
             <input
               type="text"
@@ -443,8 +474,8 @@ export default function Home() {
                 width: '100%',
                 padding: '14px 16px',
                 borderRadius: '10px',
-                border: '2px solid rgba(100, 100, 150, 0.3)',
-                background: 'rgba(20, 20, 40, 0.8)',
+                border: '2px solid rgba(139, 69, 19, 0.3)',
+                background: 'rgba(20, 10, 5, 0.9)',
                 color: '#fff',
                 fontSize: '16px',
                 textTransform: 'uppercase',
@@ -454,11 +485,11 @@ export default function Home() {
                 letterSpacing: '2px',
               }}
               onFocus={(e) => {
-                e.target.style.borderColor = '#764ba2';
-                e.target.style.boxShadow = '0 0 15px rgba(118, 75, 162, 0.3)';
+                e.target.style.borderColor = '#8b4513';
+                e.target.style.boxShadow = '0 0 15px rgba(139, 69, 19, 0.3)';
               }}
               onBlur={(e) => {
-                e.target.style.borderColor = 'rgba(100, 100, 150, 0.3)';
+                e.target.style.borderColor = 'rgba(139, 69, 19, 0.3)';
                 e.target.style.boxShadow = 'none';
               }}
             />
@@ -469,7 +500,7 @@ export default function Home() {
               onClick={handleCreateLobby}
               style={{
                 padding: '16px 24px',
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                background: 'linear-gradient(180deg, #c9a227 0%, #8b4513 100%)',
                 color: '#fff',
                 border: 'none',
                 borderRadius: '12px',
@@ -477,15 +508,15 @@ export default function Home() {
                 fontSize: '18px',
                 fontWeight: 'bold',
                 transition: 'all 0.3s ease',
-                boxShadow: '0 4px 15px rgba(102, 126, 234, 0.3)',
+                boxShadow: '0 4px 15px rgba(201, 162, 39, 0.3)',
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.5)';
+                e.currentTarget.style.boxShadow = '0 6px 20px rgba(201, 162, 39, 0.5)';
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.3)';
+                e.currentTarget.style.boxShadow = '0 4px 15px rgba(201, 162, 39, 0.3)';
               }}
             >
               Crear Nueva Sala
@@ -494,7 +525,7 @@ export default function Home() {
               onClick={handleJoinLobby}
               style={{
                 padding: '16px 24px',
-                background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+                background: 'linear-gradient(180deg, #8b4513 0%, #5a2d0a 100%)',
                 color: '#fff',
                 border: 'none',
                 borderRadius: '12px',
@@ -502,15 +533,15 @@ export default function Home() {
                 fontSize: '18px',
                 fontWeight: 'bold',
                 transition: 'all 0.3s ease',
-                boxShadow: '0 4px 15px rgba(240, 147, 251, 0.3)',
+                boxShadow: '0 4px 15px rgba(139, 69, 19, 0.3)',
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.boxShadow = '0 6px 20px rgba(240, 147, 251, 0.5)';
+                e.currentTarget.style.boxShadow = '0 6px 20px rgba(139, 69, 19, 0.5)';
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = '0 4px 15px rgba(240, 147, 251, 0.3)';
+                e.currentTarget.style.boxShadow = '0 4px 15px rgba(139, 69, 19, 0.3)';
               }}
             >
               Unirse a Sala
@@ -536,8 +567,8 @@ export default function Home() {
             fontSize: '12px',
             color: '#606080',
           }}>
-            {socket?.connected ? (
-              <span style={{ color: '#667eea' }}>● Conectado al servidor</span>
+            {connected ? (
+              <span style={{ color: '#c9a227' }}>● Conectado al servidor</span>
             ) : (
               <span style={{ color: '#ff4444' }}>● Desconectado del servidor</span>
             )}
@@ -554,33 +585,36 @@ export default function Home() {
         flexDirection: 'column',
         justifyContent: 'center',
         alignItems: 'center',
-        height: '100vh',
-        background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
+        minHeight: '100vh',
+        boxSizing: 'border-box',
+        background: 'linear-gradient(rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.7)), url(/portada.png) center / cover no-repeat',
         margin: 0,
-        padding: 0,
+        padding: '20px 0',
         color: '#fff',
-        fontFamily: 'Arial, sans-serif',
+        fontFamily: 'Courier New, monospace',
       }}>
+        <MusicToggle muted={music.muted} onToggle={music.toggleMuted} />
         <div style={{
-          background: 'rgba(26, 26, 46, 0.95)',
-          padding: '50px 60px',
-          borderRadius: '20px',
+          background: 'rgba(30, 20, 10, 0.95)',
+          padding: '40px 50px',
+          borderRadius: '4px',
           textAlign: 'center',
           boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
-          border: '2px solid rgba(100, 100, 150, 0.3)',
-          maxWidth: '450px',
+          border: '2px solid rgba(139, 69, 19, 0.3)',
+          maxWidth: '720px',
+          boxSizing: 'border-box',
           width: '100%',
         }}>
           <div style={{
             width: '70px',
             height: '70px',
             margin: '0 auto 15px',
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            background: 'linear-gradient(180deg, #c9a227 0%, #8b4513 100%)',
             borderRadius: '15px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            boxShadow: '0 10px 30px rgba(102, 126, 234, 0.3)',
+            boxShadow: '0 10px 30px rgba(201, 162, 39, 0.3)',
           }}>
             <div style={{
               width: '30px',
@@ -593,7 +627,7 @@ export default function Home() {
             marginBottom: '10px',
             fontSize: '28px',
             fontWeight: 'bold',
-            background: 'linear-gradient(90deg, #667eea, #764ba2)',
+            background: 'linear-gradient(90deg, #c9a227, #ffd700, #c9a227)',
             WebkitBackgroundClip: 'text',
             WebkitTextFillColor: 'transparent',
           }}>
@@ -602,16 +636,31 @@ export default function Home() {
           <p style={{
             marginBottom: '30px',
             fontSize: '14px',
-            color: '#a0a0c0',
+            color: '#deb887',
           }}>
             Comparte este código con tus amigos
           </p>
+
+          <div style={{ marginBottom: '24px' }}>
+            <h2 style={{
+              marginBottom: '15px',
+              fontSize: '18px',
+              color: '#deb887',
+            }}>
+              Elige tu personaje
+            </h2>
+            <CharacterSelect
+              selectedId={lobby.players.find(p => p.id === socket?.id)?.characterId}
+              onSelect={handleSelectCharacter}
+              disabled={!!lobby.players.find(p => p.id === socket?.id)?.isReady}
+            />
+          </div>
 
           <div style={{ marginBottom: '30px' }}>
             <h2 style={{
               marginBottom: '15px',
               fontSize: '18px',
-              color: '#b0b0d0',
+              color: '#deb887',
             }}>
               Jugadores ({lobby.players.length}/3)
             </h2>
@@ -620,9 +669,9 @@ export default function Home() {
                 <li key={player.id} style={{
                   marginBottom: '12px',
                   padding: '15px',
-                  background: 'rgba(42, 42, 74, 0.8)',
+                  background: 'rgba(42, 26, 10, 0.85)',
                   borderRadius: '10px',
-                  border: '1px solid rgba(100, 100, 150, 0.2)',
+                  border: '1px solid rgba(139, 69, 19, 0.2)',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
@@ -642,10 +691,17 @@ export default function Home() {
                         ANFITRIÓN
                       </span>
                     )}
+                    <span style={{
+                      marginLeft: '8px',
+                      fontSize: '13px',
+                      color: player.characterId ? getCharacter(player.characterId).color : '#666',
+                    }}>
+                      {player.characterId ? getCharacter(player.characterId).name : 'sin personaje'}
+                    </span>
                   </span>
                   <span style={{
                     fontSize: '14px',
-                    color: player.isReady ? '#667eea' : '#666',
+                    color: player.isReady ? '#c9a227' : '#666',
                     fontWeight: 'bold',
                   }}>
                     {player.isReady ? 'LISTO' : 'ESPERANDO'}
@@ -658,11 +714,14 @@ export default function Home() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <button
               onClick={handlePlayerReady}
+              disabled={!lobby.players.find(p => p.id === socket?.id)?.characterId}
+              title={lobby.players.find(p => p.id === socket?.id)?.characterId ? undefined : 'Primero elige un personaje'}
               style={{
+                opacity: lobby.players.find(p => p.id === socket?.id)?.characterId ? 1 : 0.5,
                 padding: '14px 24px',
                 background: lobby.players.find(p => p.id === socket?.id)?.isReady
                   ? 'linear-gradient(135deg, #ff6b6b 0%, #ee5a5a 100%)'
-                  : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  : 'linear-gradient(180deg, #c9a227 0%, #8b4513 100%)',
                 color: '#fff',
                 border: 'none',
                 borderRadius: '12px',
@@ -670,15 +729,15 @@ export default function Home() {
                 fontSize: '16px',
                 fontWeight: 'bold',
                 transition: 'all 0.3s ease',
-                boxShadow: '0 4px 15px rgba(102, 126, 234, 0.3)',
+                boxShadow: '0 4px 15px rgba(201, 162, 39, 0.3)',
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.5)';
+                e.currentTarget.style.boxShadow = '0 6px 20px rgba(201, 162, 39, 0.5)';
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.3)';
+                e.currentTarget.style.boxShadow = '0 4px 15px rgba(201, 162, 39, 0.3)';
               }}
             >
               {lobby.players.find(p => p.id === socket?.id)?.isReady ? 'Cancelar' : 'Estoy Listo'}
@@ -690,7 +749,7 @@ export default function Home() {
                 style={{
                   padding: '14px 24px',
                   background: lobby.players.every(p => p.isReady)
-                    ? 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)'
+                    ? 'linear-gradient(180deg, #8b4513 0%, #5a2d0a 100%)'
                     : 'linear-gradient(135deg, #666 0%, #444 100%)',
                   color: '#fff',
                   border: 'none',
@@ -699,18 +758,18 @@ export default function Home() {
                   fontSize: '16px',
                   fontWeight: 'bold',
                   transition: 'all 0.3s ease',
-                  boxShadow: '0 4px 15px rgba(240, 147, 251, 0.3)',
+                  boxShadow: '0 4px 15px rgba(139, 69, 19, 0.3)',
                   opacity: lobby.players.every(p => p.isReady) ? 1 : 0.5,
                 }}
                 onMouseEnter={(e) => {
                   if (lobby.players.every(p => p.isReady)) {
                     e.currentTarget.style.transform = 'translateY(-2px)';
-                    e.currentTarget.style.boxShadow = '0 6px 20px rgba(240, 147, 251, 0.5)';
+                    e.currentTarget.style.boxShadow = '0 6px 20px rgba(139, 69, 19, 0.5)';
                   }
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.transform = 'translateY(0)';
-                  e.currentTarget.style.boxShadow = '0 4px 15px rgba(240, 147, 251, 0.3)';
+                  e.currentTarget.style.boxShadow = '0 4px 15px rgba(139, 69, 19, 0.3)';
                 }}
               >
                 Iniciar Partida
@@ -738,8 +797,8 @@ export default function Home() {
               marginTop: '20px',
               padding: '10px 20px',
               background: 'transparent',
-              color: '#8080a0',
-              border: '1px solid rgba(128, 128, 160, 0.3)',
+              color: '#b08a5a',
+              border: '1px solid rgba(139, 69, 19, 0.3)',
               borderRadius: '8px',
               cursor: 'pointer',
               fontSize: '14px',
@@ -750,8 +809,8 @@ export default function Home() {
               e.currentTarget.style.borderColor = '#fff';
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.color = '#8080a0';
-              e.currentTarget.style.borderColor = 'rgba(128, 128, 160, 0.3)';
+              e.currentTarget.style.color = '#b08a5a';
+              e.currentTarget.style.borderColor = 'rgba(139, 69, 19, 0.3)';
             }}
           >
             Volver al menú
@@ -761,20 +820,28 @@ export default function Home() {
     );
   }
 
+  const myId = socket?.id ?? '';
+  const gameState = lobby?.gameState ?? null;
+  const me = gameState?.players[myId];
+  const showBattle = !!gameState?.boss && (gameState.phase === 'COMBAT' || gameState.phase === 'VICTORY' || gameState.phase === 'GAME_OVER');
+  const showShop = gameState?.phase === 'SHOP';
+
   return (
     <main style={{
       display: 'flex',
       flexDirection: 'column',
       justifyContent: 'center',
       alignItems: 'center',
-      height: '100vh',
-      background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
+      minHeight: '100vh',
+      boxSizing: 'border-box',
+      background: 'linear-gradient(rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.7)), url(/portada.png) center / cover no-repeat',
       margin: 0,
-      padding: 0,
-      fontFamily: 'Arial, sans-serif',
+      padding: '20px 0',
+      fontFamily: 'Courier New, monospace',
     }}>
+      <MusicToggle muted={music.muted} onToggle={music.toggleMuted} />
       <div style={{
-        background: 'rgba(26, 26, 46, 0.95)',
+        background: 'rgba(30, 20, 10, 0.95)',
         padding: '15px 40px',
         borderRadius: '15px',
         marginBottom: '20px',
@@ -782,7 +849,7 @@ export default function Home() {
         gap: '40px',
         color: '#fff',
         fontSize: '16px',
-        border: '2px solid rgba(100, 100, 150, 0.3)',
+        border: '2px solid rgba(139, 69, 19, 0.3)',
         boxShadow: '0 10px 30px rgba(0, 0, 0, 0.3)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -792,7 +859,7 @@ export default function Home() {
             background: '#ff6b6b',
             borderRadius: '50%',
           }}></div>
-          <span><strong>Vida:</strong> {lobby?.gameState?.players[socket?.id ?? '']?.hp || 100} / {lobby?.gameState?.players[socket?.id ?? '']?.maxHp || 100}</span>
+          <span><strong>Vida:</strong> {me?.hp ?? 0} / {me?.maxHp ?? 0}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <div style={{
@@ -807,38 +874,49 @@ export default function Home() {
           <div style={{
             width: '16px',
             height: '16px',
-            background: '#667eea',
+            background: '#c9a227',
             borderRadius: '4px',
           }}></div>
-          <span><strong>Piso:</strong> {currentFloor}</span>
+          <span><strong>Nivel:</strong> {currentFloor} / {TOTAL_LEVELS}</span>
         </div>
-        <div style={{ fontSize: '14px', color: '#8080a0' }}>
-          WASD / Flechas
+        {me && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: getCharacter(me.characterId).color }}>
+            <strong>{getCharacter(me.characterId).name}</strong> Nv {me.level}
+          </div>
+        )}
+        <div style={{ fontSize: '14px', color: '#b08a5a' }}>
+          {showBattle ? 'Combate por turnos' : showShop ? 'Tienda' : 'WASD / Flechas · llega a la salida roja'}
         </div>
       </div>
-      <canvas
-        ref={canvasRef}
-        width={MAP_WIDTH * TILE_SIZE}
-        height={MAP_HEIGHT * TILE_SIZE}
-        style={{
-          border: '3px solid rgba(100, 100, 150, 0.3)',
-          borderRadius: '10px',
-          background: '#0f0f1a',
-          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
-        }}
-      />
+      {gameState && showBattle ? (
+        <BattleScreen gameState={gameState} myId={myId} onAttack={handleAttack} onDefend={handleDefend} />
+      ) : gameState && showShop ? (
+        <ShopScreen gameState={gameState} myId={myId} onBuy={handleBuyAttack} onReady={handleShopReady} />
+      ) : (
+        <canvas
+          ref={canvasRef}
+          width={MAP_WIDTH * TILE_SIZE}
+          height={MAP_HEIGHT * TILE_SIZE}
+          style={{
+            border: '3px solid rgba(139, 69, 19, 0.3)',
+            borderRadius: '10px',
+            background: '#0f0f1a',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
+          }}
+        />
+      )}
       {isGameOver && (
         <div style={{
           position: 'fixed',
           top: '50%',
           left: '50%',
           transform: 'translate(-50%, -50%)',
-          background: 'rgba(26, 26, 46, 0.98)',
+          background: 'rgba(30, 20, 10, 0.98)',
           padding: '50px 60px',
-          borderRadius: '20px',
+          borderRadius: '4px',
           textAlign: 'center',
           color: '#fff',
-          border: '2px solid rgba(100, 100, 150, 0.3)',
+          border: '2px solid rgba(139, 69, 19, 0.3)',
           boxShadow: '0 20px 60px rgba(0, 0, 0, 0.7)',
           zIndex: 1000,
         }}>
@@ -847,9 +925,9 @@ export default function Home() {
             height: '80px',
             margin: '0 auto 20px',
             background: gameStatus === 'VICTORY'
-              ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+              ? 'linear-gradient(180deg, #c9a227 0%, #8b4513 100%)'
               : 'linear-gradient(135deg, #ff6b6b 0%, #ee5a5a 100%)',
-            borderRadius: '20px',
+            borderRadius: '4px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -862,7 +940,7 @@ export default function Home() {
             }}></div>
           </div>
           <h2 style={{
-            color: gameStatus === 'VICTORY' ? '#667eea' : '#ff6b6b',
+            color: gameStatus === 'VICTORY' ? '#c9a227' : '#ff6b6b',
             marginBottom: '20px',
             fontSize: '36px',
             fontWeight: 'bold',
@@ -872,17 +950,18 @@ export default function Home() {
           <div style={{
             marginBottom: '30px',
             fontSize: '18px',
-            color: '#b0b0d0',
+            color: '#deb887',
             lineHeight: '1.8',
           }}>
-            <div>Piso alcanzado: <strong>{currentFloor}</strong></div>
+            <div>Nivel alcanzado: <strong>{currentFloor} / {TOTAL_LEVELS}</strong></div>
+            <div>Jefes derrotados: <strong>{gameState?.bossesDefeated ?? 0}</strong></div>
             <div>Oro recolectado: <strong>{goldCollected}</strong></div>
           </div>
           <button
             onClick={() => setView('menu')}
             style={{
               padding: '16px 32px',
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              background: 'linear-gradient(180deg, #c9a227 0%, #8b4513 100%)',
               color: '#fff',
               border: 'none',
               borderRadius: '12px',
@@ -890,22 +969,22 @@ export default function Home() {
               fontSize: '18px',
               fontWeight: 'bold',
               transition: 'all 0.3s ease',
-              boxShadow: '0 4px 15px rgba(102, 126, 234, 0.3)',
+              boxShadow: '0 4px 15px rgba(201, 162, 39, 0.3)',
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.transform = 'translateY(-2px)';
-              e.currentTarget.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.5)';
+              e.currentTarget.style.boxShadow = '0 6px 20px rgba(201, 162, 39, 0.5)';
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.3)';
+              e.currentTarget.style.boxShadow = '0 4px 15px rgba(201, 162, 39, 0.3)';
             }}
           >
             Volver al Menú
           </button>
         </div>
       )}
-      {isMobile && (
+      {isMobile && !showBattle && !showShop && (
         <div style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(3, 60px)',
