@@ -1,9 +1,9 @@
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import { generateMap, TILE } from '../shared/mapGenerator';
-import type { Lobby, LobbyPlayer } from '../shared/types';
-import { validateMovement, calculateBossStats, processCombatTurn } from './gameLogic';
+import type { Lobby, LobbyPlayer, CharacterClass } from '../shared/types';
+import { calculateBossStats, processCombatTurn } from './gameLogic';
+import { CHARACTER_CLASSES } from '../shared/types';
 
 const app = express();
 const httpServer = createServer(app);
@@ -15,7 +15,6 @@ const io = new Server(httpServer, {
 
 const lobbies = new Map<string, Lobby>();
 const MAX_PLAYERS_PER_LOBBY = 3;
-const activeMaps = new Map<string, number[][]>();
 const activeBosses = new Map<string, any>();
 
 function generateLobbyId(): string {
@@ -25,12 +24,13 @@ function generateLobbyId(): string {
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
 
-  socket.on('create_lobby', (data: { playerName: string }) => {
+  socket.on('create_lobby', (data: { playerName: string; characterClass?: CharacterClass }) => {
     const lobbyId = generateLobbyId();
     const player: LobbyPlayer = {
       id: socket.id,
       name: data.playerName,
       isReady: false,
+      characterClass: data.characterClass || 'warrior',
     };
 
     const lobby: Lobby = {
@@ -47,7 +47,7 @@ io.on('connection', (socket) => {
     io.to(lobbyId).emit('lobby_updated', lobby);
   });
 
-  socket.on('join_lobby', (data: { lobbyId: string; playerName: string }) => {
+  socket.on('join_lobby', (data: { lobbyId: string; playerName: string; characterClass?: CharacterClass }) => {
     const lobby = lobbies.get(data.lobbyId);
 
     if (!lobby) {
@@ -64,6 +64,7 @@ io.on('connection', (socket) => {
       id: socket.id,
       name: data.playerName,
       isReady: false,
+      characterClass: data.characterClass || 'warrior',
     };
 
     lobby.players.push(player);
@@ -106,21 +107,25 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const map = generateMap(20, 20);
-    activeMaps.set(data.lobbyId, map);
     const playersState: Record<string, any> = {};
 
-    for (const player of lobby.players) {
+    const boss = calculateBossStats(lobby.players.length, 1);
+    activeBosses.set(data.lobbyId, boss);
+
+    for (let i = 0; i < lobby.players.length; i++) {
+      const player = lobby.players[i]!;
+      const characterClass = player.characterClass || 'warrior';
+      const stats = CHARACTER_CLASSES[characterClass];
+
       playersState[player.id] = {
         id: player.id,
-        x: 1,
-        y: 1,
-        hp: 100,
-        maxHp: 100,
+        hp: stats.hp,
+        maxHp: stats.maxHp,
         level: 1,
         exp: 0,
         gold: 0,
         inventory: [],
+        characterClass,
       };
     }
 
@@ -128,65 +133,15 @@ io.on('connection', (socket) => {
       floor: 1,
       players: playersState,
       currentTurnPlayerId: lobby.players[0]!.id,
-      phase: 'EXPLORE',
+      phase: 'COMBAT',
     };
 
-    const boss = calculateBossStats(lobby.players.length);
-    activeBosses.set(data.lobbyId, boss);
-
-    io.to(data.lobbyId).emit('game_started', { lobby, map, boss });
+    io.to(data.lobbyId).emit('game_started', { lobby, boss });
   });
 
-  socket.on('player_move', (data: { lobbyId: string; targetX: number; targetY: number }) => {
-    console.log('Movimiento recibido:', { socketId: socket.id, ...data });
 
-    const lobby = lobbies.get(data.lobbyId);
-    if (!lobby || !lobby.gameState) {
-      console.log('Error: Partida no iniciada');
-      socket.emit('error', { message: 'Partida no iniciada' });
-      return;
-    }
 
-    const player = lobby.gameState.players[socket.id];
-    if (!player) {
-      console.log('Error: Jugador no encontrado');
-      socket.emit('error', { message: 'Jugador no encontrado' });
-      return;
-    }
-
-    console.log('Posición actual del jugador:', { x: player.x, y: player.y });
-    console.log('Posición objetivo:', { x: data.targetX, y: data.targetY });
-
-    const map = activeMaps.get(data.lobbyId);
-    if (!map) {
-      console.log('Error: Mapa no encontrado');
-      socket.emit('error', { message: 'Mapa no encontrado' });
-      return;
-    }
-
-    const isValid = validateMovement(player, data.targetX, data.targetY, map);
-    console.log('Validación de movimiento:', isValid);
-
-    if (isValid) {
-      player.x = data.targetX;
-      player.y = data.targetY;
-
-      const tile = map[data.targetY]?.[data.targetX];
-      if (tile === TILE.EXIT) {
-        io.to(data.lobbyId).emit('game_completed', {
-          winner: socket.id,
-          gameState: lobby.gameState,
-        });
-      }
-
-      io.to(data.lobbyId).emit('game_state_update', { gameState: lobby.gameState });
-    } else {
-      console.log('Error: Movimiento inválido');
-      socket.emit('error', { message: 'Movimiento inválido' });
-    }
-  });
-
-  socket.on('combat_action', (data: { lobbyId: string; action: 'attack' | 'defend' }) => {
+  socket.on('combat_action', (data: { lobbyId: string; attackId: string }) => {
     const lobby = lobbies.get(data.lobbyId);
     if (!lobby || !lobby.gameState) {
       socket.emit('error', { message: 'Partida no iniciada' });
@@ -205,10 +160,17 @@ io.on('connection', (socket) => {
       return;
     }
 
-    processCombatTurn(player, boss, data.action);
+    const result = processCombatTurn(player, boss, data.attackId);
     activeBosses.set(data.lobbyId, boss);
 
-    io.to(data.lobbyId).emit('game_state_update', { gameState: lobby.gameState, boss });
+    if (boss.hp <= 0) {
+      io.to(data.lobbyId).emit('game_completed', {
+        winner: socket.id,
+        gameState: lobby.gameState,
+      });
+    } else {
+      io.to(data.lobbyId).emit('game_state_update', { gameState: lobby.gameState, boss, combatLog: result.combatLog });
+    }
   });
 
   socket.on('disconnect', () => {

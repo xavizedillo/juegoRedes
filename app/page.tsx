@@ -2,27 +2,12 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { TILE, type MapData } from '../shared/mapGenerator';
-import type { Lobby, Boss } from '../shared/types';
-
-const TILE_SIZE = 30;
-const MAP_WIDTH = 20;
-const MAP_HEIGHT = 20;
-
-const COLORS = {
-  [TILE.FLOOR]: '#2a2a4a',
-  [TILE.WALL]: '#4a4a6a',
-  [TILE.ENTRANCE]: '#00ff88',
-  [TILE.EXIT]: '#ff4444',
-  PLAYER: '#ffff00',
-};
+import type { Lobby, Boss, CharacterClass } from '../shared/types';
+import { CHARACTER_CLASSES, ATTACKS } from '../shared/types';
 
 export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [socket, setSocket] = useState<Socket | null>(null);
-  const [map, setMap] = useState<MapData>([]);
-  const [player, setPlayer] = useState({ x: 1, y: 1 });
-  const [isMobile, setIsMobile] = useState(false);
   const [view, setView] = useState<'menu' | 'lobby' | 'game'>('menu');
   const [lobby, setLobby] = useState<Lobby | null>(null);
   const [playerName, setPlayerName] = useState('');
@@ -31,10 +16,11 @@ export default function Home() {
   const [boss, setBoss] = useState<Boss | null>(null);
   const animationRef = useRef<number>(0);
   const [gameStartTime, setGameStartTime] = useState<number>(0);
-  const [goldCollected, setGoldCollected] = useState(0);
-  const [currentFloor, setCurrentFloor] = useState(1);
   const [isGameOver, setIsGameOver] = useState(false);
   const [gameStatus, setGameStatus] = useState<'VICTORY' | 'GAME_OVER' | 'PLAYING'>('PLAYING');
+  const [selectedCharacter, setSelectedCharacter] = useState<CharacterClass>('warrior');
+  const [combatLog, setCombatLog] = useState<string[]>([]);
+  const [selectedAttack, setSelectedAttack] = useState<string | null>(null);
 
   useEffect(() => {
     const newSocket = io('http://localhost:3001', {
@@ -65,33 +51,24 @@ export default function Home() {
       setLobby(updatedLobby);
     });
 
-    newSocket.on('game_started', (data: { lobby: Lobby; map: MapData; boss: Boss }) => {
+    newSocket.on('game_started', (data: { lobby: Lobby; boss: Boss }) => {
       setLobby(data.lobby);
-      setMap(data.map);
       setBoss(data.boss);
       setView('game');
       setGameStartTime(Date.now());
-      setGoldCollected(0);
-      setCurrentFloor(1);
       setIsGameOver(false);
       setGameStatus('PLAYING');
     });
 
-    newSocket.on('game_state_update', (data: { gameState: any; boss?: Boss }) => {
+    newSocket.on('game_state_update', (data: { gameState: any; boss?: Boss; combatLog?: string }) => {
       if (lobby) {
         setLobby({ ...lobby, gameState: data.gameState });
       }
       if (data.boss) {
         setBoss(data.boss);
       }
-      if (data.gameState?.players[socket?.id ?? '']) {
-        const playerData = data.gameState.players[socket?.id ?? ''];
-        setPlayer({
-          x: playerData.x,
-          y: playerData.y,
-        });
-        setGoldCollected(playerData.gold || 0);
-        setCurrentFloor(data.gameState.floor || 1);
+      if (data.combatLog) {
+        setCombatLog(prev => [...prev, data.combatLog!].slice(-5));
       }
     });
 
@@ -107,7 +84,7 @@ export default function Home() {
         partySize: lobby?.players.length || 1,
         floorReached: data.gameState.floor || 1,
         bossesDefeated: 0,
-        goldCollected: goldCollected,
+        goldCollected: 0,
         status: status,
         playtimeMinutes: playtimeMinutes,
         inventory: data.gameState.players[socket?.id ?? '']?.inventory || {},
@@ -137,44 +114,173 @@ export default function Home() {
     };
   }, []);
 
-  useEffect(() => {
-    if (view === 'game') {
-      setIsMobile(/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent));
-    }
-  }, [view]);
+
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || view !== 'game') return;
 
-    const ctx = canvas.getContext('2d');
+    const ctx = (canvas as HTMLCanvasElement).getContext('2d');
     if (!ctx) return;
 
     const render = () => {
-      ctx.fillStyle = '#0f0f1a';
+      ctx.fillStyle = '#1a1a2e';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      for (let y = 0; y < MAP_HEIGHT; y++) {
-        for (let x = 0; x < MAP_WIDTH; x++) {
-          ctx.fillStyle = COLORS[map[y]![x]! as keyof typeof COLORS];
-          ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-          ctx.strokeStyle = '#1a1a3a';
-          ctx.strokeRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-        }
+      const floorColor = '#2d2d44';
+      const wallColor = '#1e1e32';
+      const torchColor = '#ff6600';
+
+      ctx.fillStyle = floorColor;
+      ctx.fillRect(0, 200, canvas.width, canvas.height - 200);
+
+      for (let i = 0; i < 10; i++) {
+        ctx.fillStyle = '#383850';
+        ctx.fillRect(i * 80 + 10, 200 + (i % 3) * 40, 60, 30);
+      }
+
+      ctx.fillStyle = wallColor;
+      ctx.fillRect(0, 0, canvas.width, 200);
+
+      for (let i = 0; i < 5; i++) {
+        ctx.fillStyle = '#252540';
+        ctx.fillRect(i * 150 + 30, 50, 30, 150);
+        ctx.fillStyle = '#2a2a4a';
+        ctx.fillRect(i * 150 + 35, 55, 20, 140);
+      }
+
+      const torchPositions = [80, 350, 620];
+      torchPositions.forEach(x => {
+        ctx.fillStyle = '#4a3a2a';
+        ctx.fillRect(x - 3, 30, 6, 50);
+        ctx.fillStyle = torchColor;
+        ctx.beginPath();
+        ctx.arc(x, 20, 15, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffaa00';
+        ctx.beginPath();
+        ctx.arc(x, 25, 8, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      const chainX = 180;
+      ctx.strokeStyle = '#5a5a6a';
+      ctx.lineWidth = 3;
+      for (let i = 0; i < 5; i++) {
+        ctx.beginPath();
+        ctx.moveTo(chainX, 60 + i * 20);
+        ctx.lineTo(chainX + 15, 70 + i * 20);
+        ctx.lineTo(chainX, 80 + i * 20);
+        ctx.stroke();
+      }
+
+      if (boss) {
+        const bossX = 150;
+        const bossY = 300;
+        const bossSize = 80;
+
+        ctx.fillStyle = '#8b0000';
+        ctx.fillRect(bossX, bossY, bossSize, bossSize);
+        ctx.fillStyle = '#a52a2a';
+        ctx.fillRect(bossX + 10, bossY + 10, bossSize - 20, bossSize - 20);
+        ctx.fillStyle = '#ff0000';
+        ctx.fillRect(bossX + 20, bossY + 20, bossSize - 40, bossSize - 40);
+
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 16px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('Minotauro', bossX + bossSize / 2, bossY - 15);
+
+        const bossHpPercent = boss.hp / boss.maxHp;
+        const hpBarWidth = 120;
+        const hpBarHeight = 20;
+        const hpBarX = bossX + bossSize / 2 - hpBarWidth / 2;
+        const hpBarY = bossY - 45;
+
+        ctx.fillStyle = '#333';
+        ctx.fillRect(hpBarX, hpBarY, hpBarWidth, hpBarHeight);
+
+        ctx.fillStyle = bossHpPercent > 0.5 ? '#00ff00' : bossHpPercent > 0.25 ? '#ffff00' : '#ff0000';
+        ctx.fillRect(hpBarX, hpBarY, hpBarWidth * bossHpPercent, hpBarHeight);
+
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(hpBarX, hpBarY, hpBarWidth, hpBarHeight);
+
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 12px Arial';
+        ctx.fillText(`${boss.hp}/${boss.maxHp}`, bossX + bossSize / 2, hpBarY - 5);
+
+        const minionX = 50;
+        const minionY = 320;
+        const minionSize = 40;
+
+        ctx.fillStyle = '#4a4a00';
+        ctx.fillRect(minionX, minionY, minionSize, minionSize);
+        ctx.fillStyle = '#6a6a00';
+        ctx.fillRect(minionX + 5, minionY + 5, minionSize - 10, minionSize - 10);
+
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 10px Arial';
+        ctx.fillText('Orco', minionX + minionSize / 2, minionY - 5);
       }
 
       if (lobby?.gameState?.players) {
-        Object.values(lobby.gameState.players).forEach((p: any) => {
-          ctx.fillStyle = p.id === socket?.id ? COLORS.PLAYER : '#ff8800';
-          ctx.beginPath();
-          ctx.arc(
-            p.x * TILE_SIZE + TILE_SIZE / 2,
-            p.y * TILE_SIZE + TILE_SIZE / 2,
-            TILE_SIZE / 3,
-            0,
-            Math.PI * 2
-          );
-          ctx.fill();
+        const heroBaseX = 500;
+        const heroY = 280;
+        const heroSize = 60;
+        const heroSpacing = 100;
+
+        Object.values(lobby.gameState.players).forEach((p: any, index: number) => {
+          const heroX = heroBaseX + index * heroSpacing;
+          const characterClass = (p.characterClass || 'warrior') as CharacterClass;
+          const stats = CHARACTER_CLASSES[characterClass];
+
+          ctx.fillStyle = stats.color;
+          ctx.fillRect(heroX, heroY, heroSize, heroSize);
+          ctx.strokeStyle = '#fff';
+          ctx.lineWidth = 3;
+          ctx.strokeRect(heroX, heroY, heroSize, heroSize);
+
+          if (characterClass === 'warrior') {
+            ctx.fillStyle = '#c0c0c0';
+            ctx.fillRect(heroX + 15, heroY + 10, 30, 5);
+            ctx.fillRect(heroX + 20, heroY + 15, 5, 25);
+          } else if (characterClass === 'mage') {
+            ctx.fillStyle = '#8b4513';
+            ctx.fillRect(heroX + 25, heroY + 15, 8, 35);
+            ctx.fillStyle = '#9b59b6';
+            ctx.fillRect(heroX + 20, heroY + 20, 18, 18);
+          } else if (characterClass === 'tank') {
+            ctx.fillStyle = '#c0c0c0';
+            ctx.fillRect(heroX + 10, heroY + 25, 15, 8);
+            ctx.fillRect(heroX + 35, heroY + 25, 15, 8);
+          }
+
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold 14px Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText(stats.name, heroX + heroSize / 2, heroY - 10);
+
+          const playerHpPercent = p.hp / p.maxHp;
+          const hpBarWidth = 80;
+          const hpBarHeight = 15;
+          const hpBarX = heroX + heroSize / 2 - hpBarWidth / 2;
+          const hpBarY = heroY - 35;
+
+          ctx.fillStyle = '#333';
+          ctx.fillRect(hpBarX, hpBarY, hpBarWidth, hpBarHeight);
+
+          ctx.fillStyle = playerHpPercent > 0.5 ? '#00ff00' : playerHpPercent > 0.25 ? '#ffff00' : '#ff0000';
+          ctx.fillRect(hpBarX, hpBarY, hpBarWidth * playerHpPercent, hpBarHeight);
+
+          ctx.strokeStyle = '#fff';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(hpBarX, hpBarY, hpBarWidth, hpBarHeight);
+
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold 11px Arial';
+          ctx.fillText(`${p.hp}/${p.maxHp}`, heroX + heroSize / 2, hpBarY - 5);
         });
       }
 
@@ -188,72 +294,16 @@ export default function Home() {
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [map, player, view]);
+  }, [view, boss, lobby]);
 
-  useEffect(() => {
-    if (view !== 'game') return;
 
-    const handleKeyDown = (e: KeyboardEvent) => {
-      let dx = 0;
-      let dy = 0;
-
-      switch (e.key) {
-        case 'ArrowUp':
-        case 'w':
-        case 'W':
-          dy = -1;
-          break;
-        case 'ArrowDown':
-        case 's':
-        case 'S':
-          dy = 1;
-          break;
-        case 'ArrowLeft':
-        case 'a':
-        case 'A':
-          dx = -1;
-          break;
-        case 'ArrowRight':
-        case 'd':
-        case 'D':
-          dx = 1;
-          break;
-        default:
-          return;
-      }
-
-      const currentPlayer = lobby?.gameState?.players[socket?.id ?? ''];
-      console.log('Tecla presionada:', e.key, { dx, dy });
-      console.log('Posición actual del jugador (cliente):', currentPlayer);
-
-      if (!currentPlayer) {
-        console.log('Jugador no encontrado en gameState');
-        return;
-      }
-
-      const newX = currentPlayer.x + dx;
-      const newY = currentPlayer.y + dy;
-
-      console.log('Enviando movimiento:', { from: { x: currentPlayer.x, y: currentPlayer.y }, to: { x: newX, y: newY } });
-
-      if (lobby) {
-        socket?.emit('player_move', { lobbyId: lobby.id, targetX: newX, targetY: newY });
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [map, view, lobby, socket]);
 
   const handleCreateLobby = () => {
     if (!playerName.trim()) {
       setError('Por favor ingresa tu nombre');
       return;
     }
-    socket?.emit('create_lobby', { playerName });
+    socket?.emit('create_lobby', { playerName, characterClass: selectedCharacter });
   };
 
   const handleJoinLobby = () => {
@@ -270,7 +320,14 @@ export default function Home() {
     }
 
     console.log('Intentando unirse a sala:', { lobbyId: cleanCode, playerName: cleanName });
-    socket?.emit('join_lobby', { lobbyId: cleanCode, playerName: cleanName });
+    socket?.emit('join_lobby', { lobbyId: cleanCode, playerName: cleanName, characterClass: selectedCharacter });
+  };
+
+  const handleAttack = (attackId: string) => {
+    if (lobby) {
+      setSelectedAttack(attackId);
+      socket?.emit('combat_action', { lobbyId: lobby.id, attackId });
+    }
   };
 
   const handlePlayerReady = () => {
@@ -285,37 +342,7 @@ export default function Home() {
     }
   };
 
-  const handleTouchMove = (direction: string) => {
-    let dx = 0;
-    let dy = 0;
 
-    switch (direction) {
-      case 'up':
-        dy = -1;
-        break;
-      case 'down':
-        dy = 1;
-        break;
-      case 'left':
-        dx = -1;
-        break;
-      case 'right':
-        dx = 1;
-        break;
-      default:
-        return;
-    }
-
-    const currentPlayer = lobby?.gameState?.players[socket?.id ?? ''];
-    if (!currentPlayer) return;
-
-    const newX = currentPlayer.x + dx;
-    const newY = currentPlayer.y + dy;
-
-    if (lobby) {
-      socket?.emit('player_move', { lobbyId: lobby.id, targetX: newX, targetY: newY });
-    }
-  };
 
   if (view === 'menu') {
     return (
@@ -325,74 +352,71 @@ export default function Home() {
         justifyContent: 'center',
         alignItems: 'center',
         height: '100vh',
-        background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
+        backgroundImage: 'url(/portada.png)',
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
         margin: 0,
         padding: 0,
         color: '#fff',
-        fontFamily: 'Arial, sans-serif',
+        fontFamily: 'Courier New, monospace',
+        position: 'relative',
       }}>
         <div style={{
-          background: 'rgba(26, 26, 46, 0.95)',
-          padding: '50px 60px',
-          borderRadius: '20px',
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.7)',
+          zIndex: 0,
+        }}></div>
+        <div style={{
+          position: 'relative',
+          zIndex: 1,
+          background: 'rgba(30, 20, 10, 0.95)',
+          padding: '40px 50px',
+          border: '4px solid #8b4513',
           textAlign: 'center',
-          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
-          border: '2px solid rgba(100, 100, 150, 0.3)',
-          maxWidth: '400px',
+          boxShadow: '0 0 40px rgba(139, 69, 19, 0.5), inset 0 0 20px rgba(0, 0, 0, 0.5)',
+          maxWidth: '450px',
           width: '100%',
+          imageRendering: 'pixelated',
         }}>
           <div style={{
-            width: '80px',
-            height: '80px',
-            margin: '0 auto 20px',
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-            borderRadius: '20px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: '0 10px 30px rgba(102, 126, 234, 0.3)',
-          }}>
-            <div style={{
-              width: '40px',
-              height: '40px',
-              background: '#fff',
-              borderRadius: '8px',
-              transform: 'rotate(45deg)',
-            }}></div>
-          </div>
-          <h1 style={{
-            marginBottom: '10px',
-            fontSize: '32px',
-            fontWeight: 'bold',
-            background: 'linear-gradient(90deg, #667eea, #764ba2)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-          }}>
-            RogueWeb
-          </h1>
-          <p style={{
+            height: '4px',
+            background: 'linear-gradient(90deg, #c9a227, #ffd700, #c9a227)',
             marginBottom: '30px',
-            fontSize: '14px',
-            color: '#a0a0c0',
-            textTransform: 'uppercase',
-            letterSpacing: '2px',
-          }}>
-            Ecos de la Red
-          </p>
+            boxShadow: '0 0 10px #ffd700',
+          }}></div>
+
+          <img
+            src="/logotipo.png"
+            alt="XJS DUNGEON"
+            style={{
+              width: '100%',
+              maxWidth: '350px',
+              marginBottom: '20px',
+              imageRendering: 'pixelated',
+            }}
+          />
 
           <div style={{ marginBottom: '25px' }}>
             <label style={{
               display: 'block',
               marginBottom: '8px',
               fontSize: '14px',
-              color: '#b0b0d0',
+              color: '#deb887',
               textAlign: 'left',
+              fontWeight: 'bold',
+              textTransform: 'uppercase',
+              letterSpacing: '1px',
             }}>
               Tu Nombre
             </label>
             <input
               type="text"
-              placeholder="Ingresa tu nombre"
+              placeholder="Ingresa tu nombre..."
               value={playerName}
               onChange={(e) => {
                 setPlayerName(e.target.value);
@@ -400,25 +424,102 @@ export default function Home() {
               }}
               style={{
                 width: '100%',
-                padding: '14px 16px',
-                borderRadius: '10px',
-                border: '2px solid rgba(100, 100, 150, 0.3)',
-                background: 'rgba(20, 20, 40, 0.8)',
-                color: '#fff',
+                padding: '12px 14px',
+                border: '3px solid #8b4513',
+                background: 'rgba(20, 10, 5, 0.9)',
+                color: '#ffd700',
                 fontSize: '16px',
                 outline: 'none',
-                transition: 'all 0.3s ease',
+                transition: 'all 0.2s ease',
                 boxSizing: 'border-box',
+                fontFamily: 'Courier New, monospace',
+                textTransform: 'uppercase',
+                letterSpacing: '1px',
               }}
               onFocus={(e) => {
-                e.target.style.borderColor = '#667eea';
-                e.target.style.boxShadow = '0 0 15px rgba(102, 126, 234, 0.3)';
+                e.target.style.borderColor = '#ffd700';
+                e.target.style.boxShadow = '0 0 15px rgba(255, 215, 0, 0.5)';
               }}
               onBlur={(e) => {
-                e.target.style.borderColor = 'rgba(100, 100, 150, 0.3)';
+                e.target.style.borderColor = '#8b4513';
                 e.target.style.boxShadow = 'none';
               }}
             />
+          </div>
+
+          <div style={{ marginBottom: '25px' }}>
+            <label style={{
+              display: 'block',
+              marginBottom: '8px',
+              fontSize: '14px',
+              color: '#deb887',
+              textAlign: 'left',
+              fontWeight: 'bold',
+              textTransform: 'uppercase',
+              letterSpacing: '1px',
+            }}>
+              Clase de Personaje
+            </label>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              {Object.entries(CHARACTER_CLASSES).map(([key, stats]) => {
+                const characterImage = key === 'warrior' ? '/per2.png' : key === 'mage' ? '/per3.png' : '/per1.png';
+                return (
+                  <button
+                    key={key}
+                    onClick={() => setSelectedCharacter(key as CharacterClass)}
+                    style={{
+                      flex: 1,
+                      padding: '10px 8px',
+                      background: selectedCharacter === key
+                        ? 'linear-gradient(180deg, #c9a227 0%, #8b4513 100%)'
+                        : 'linear-gradient(180deg, #2a1a0a 0%, #1a0a00 100%)',
+                      color: selectedCharacter === key ? '#000' : '#deb887',
+                      border: selectedCharacter === key
+                        ? '3px solid #ffd700'
+                        : '3px solid #8b4513',
+                      cursor: 'pointer',
+                      fontSize: '11px',
+                      fontWeight: 'bold',
+                      transition: 'all 0.2s ease',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '4px',
+                      fontFamily: 'Courier New, monospace',
+                      textTransform: 'uppercase',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (selectedCharacter !== key) {
+                        e.currentTarget.style.borderColor = '#ffd700';
+                        e.currentTarget.style.background = 'linear-gradient(180deg, #3a2a1a 0%, #2a1a0a 100%)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (selectedCharacter !== key) {
+                        e.currentTarget.style.borderColor = '#8b4513';
+                        e.currentTarget.style.background = 'linear-gradient(180deg, #2a1a0a 0%, #1a0a00 100%)';
+                      }
+                    }}
+                  >
+                    <img
+                      src={characterImage}
+                      alt={stats.name}
+                      style={{
+                        width: '48px',
+                        height: '48px',
+                        border: '2px solid #000',
+                        boxShadow: '2px 2px 0 #000',
+                        imageRendering: 'pixelated',
+                      }}
+                    />
+                    <span>{stats.name}</span>
+                    <span style={{ fontSize: '9px', opacity: 0.8 }}>
+                      HP:{stats.hp} ATK:{stats.attack}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <div style={{ marginBottom: '30px' }}>
@@ -426,10 +527,13 @@ export default function Home() {
               display: 'block',
               marginBottom: '8px',
               fontSize: '14px',
-              color: '#b0b0d0',
+              color: '#deb887',
               textAlign: 'left',
+              fontWeight: 'bold',
+              textTransform: 'uppercase',
+              letterSpacing: '1px',
             }}>
-              Código de Sala <span style={{ fontSize: '12px', color: '#707090' }}>(opcional)</span>
+              Código de Sala <span style={{ fontSize: '11px', color: '#8b4513' }}>(opcional)</span>
             </label>
             <input
               type="text"
@@ -441,24 +545,24 @@ export default function Home() {
               }}
               style={{
                 width: '100%',
-                padding: '14px 16px',
-                borderRadius: '10px',
-                border: '2px solid rgba(100, 100, 150, 0.3)',
-                background: 'rgba(20, 20, 40, 0.8)',
-                color: '#fff',
+                padding: '12px 14px',
+                border: '3px solid #8b4513',
+                background: 'rgba(20, 10, 5, 0.9)',
+                color: '#ffd700',
                 fontSize: '16px',
                 textTransform: 'uppercase',
                 outline: 'none',
-                transition: 'all 0.3s ease',
+                transition: 'all 0.2s ease',
                 boxSizing: 'border-box',
-                letterSpacing: '2px',
+                fontFamily: 'Courier New, monospace',
+                letterSpacing: '3px',
               }}
               onFocus={(e) => {
-                e.target.style.borderColor = '#764ba2';
-                e.target.style.boxShadow = '0 0 15px rgba(118, 75, 162, 0.3)';
+                e.target.style.borderColor = '#ffd700';
+                e.target.style.boxShadow = '0 0 15px rgba(255, 215, 0, 0.5)';
               }}
               onBlur={(e) => {
-                e.target.style.borderColor = 'rgba(100, 100, 150, 0.3)';
+                e.target.style.borderColor = '#8b4513';
                 e.target.style.boxShadow = 'none';
               }}
             />
@@ -468,24 +572,26 @@ export default function Home() {
             <button
               onClick={handleCreateLobby}
               style={{
-                padding: '16px 24px',
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '12px',
+                padding: '14px 20px',
+                background: 'linear-gradient(180deg, #c9a227 0%, #8b4513 100%)',
+                color: '#000',
+                border: '3px solid #ffd700',
                 cursor: 'pointer',
-                fontSize: '18px',
+                fontSize: '16px',
                 fontWeight: 'bold',
-                transition: 'all 0.3s ease',
-                boxShadow: '0 4px 15px rgba(102, 126, 234, 0.3)',
+                transition: 'all 0.2s ease',
+                fontFamily: 'Courier New, monospace',
+                textTransform: 'uppercase',
+                letterSpacing: '2px',
+                boxShadow: '0 4px 0 #5a2d0a',
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.5)';
+                e.currentTarget.style.boxShadow = '0 6px 0 #5a2d0a';
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.3)';
+                e.currentTarget.style.boxShadow = '0 4px 0 #5a2d0a';
               }}
             >
               Crear Nueva Sala
@@ -493,24 +599,26 @@ export default function Home() {
             <button
               onClick={handleJoinLobby}
               style={{
-                padding: '16px 24px',
-                background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '12px',
+                padding: '14px 20px',
+                background: 'linear-gradient(180deg, #8b4513 0%, #5a2d0a 100%)',
+                color: '#ffd700',
+                border: '3px solid #c9a227',
                 cursor: 'pointer',
-                fontSize: '18px',
+                fontSize: '16px',
                 fontWeight: 'bold',
-                transition: 'all 0.3s ease',
-                boxShadow: '0 4px 15px rgba(240, 147, 251, 0.3)',
+                transition: 'all 0.2s ease',
+                fontFamily: 'Courier New, monospace',
+                textTransform: 'uppercase',
+                letterSpacing: '2px',
+                boxShadow: '0 4px 0 #3a1d05',
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.boxShadow = '0 6px 20px rgba(240, 147, 251, 0.5)';
+                e.currentTarget.style.boxShadow = '0 6px 0 #3a1d05';
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = '0 4px 15px rgba(240, 147, 251, 0.3)';
+                e.currentTarget.style.boxShadow = '0 4px 0 #3a1d05';
               }}
             >
               Unirse a Sala
@@ -521,11 +629,13 @@ export default function Home() {
             <div style={{
               marginTop: '20px',
               padding: '12px 16px',
-              background: 'rgba(255, 68, 68, 0.2)',
-              border: '1px solid #ff4444',
-              borderRadius: '8px',
+              background: 'rgba(139, 0, 0, 0.3)',
+              border: '2px solid #ff4444',
               color: '#ff6666',
               fontSize: '14px',
+              fontFamily: 'Courier New, monospace',
+              textTransform: 'uppercase',
+              fontWeight: 'bold',
             }}>
               {error}
             </div>
@@ -534,14 +644,24 @@ export default function Home() {
           <div style={{
             marginTop: '25px',
             fontSize: '12px',
-            color: '#606080',
+            color: '#8b4513',
+            fontFamily: 'Courier New, monospace',
+            textTransform: 'uppercase',
+            letterSpacing: '1px',
           }}>
             {socket?.connected ? (
-              <span style={{ color: '#667eea' }}>● Conectado al servidor</span>
+              <span style={{ color: '#00ff00' }}>● Conectado al servidor</span>
             ) : (
               <span style={{ color: '#ff4444' }}>● Desconectado del servidor</span>
             )}
           </div>
+
+          <div style={{
+            height: '4px',
+            background: 'linear-gradient(90deg, #c9a227, #ffd700, #c9a227)',
+            marginTop: '30px',
+            boxShadow: '0 0 10px #ffd700',
+          }}></div>
         </div>
       </main>
     );
@@ -792,34 +912,16 @@ export default function Home() {
             background: '#ff6b6b',
             borderRadius: '50%',
           }}></div>
-          <span><strong>Vida:</strong> {lobby?.gameState?.players[socket?.id ?? '']?.hp || 100} / {lobby?.gameState?.players[socket?.id ?? '']?.maxHp || 100}</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <div style={{
-            width: '16px',
-            height: '16px',
-            background: '#ffd700',
-            borderRadius: '50%',
-          }}></div>
-          <span><strong>Oro:</strong> {goldCollected}</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <div style={{
-            width: '16px',
-            height: '16px',
-            background: '#667eea',
-            borderRadius: '4px',
-          }}></div>
-          <span><strong>Piso:</strong> {currentFloor}</span>
+          <span><strong>HP:</strong> {lobby?.gameState?.players[socket?.id ?? '']?.hp || 100} / {lobby?.gameState?.players[socket?.id ?? '']?.maxHp || 100}</span>
         </div>
         <div style={{ fontSize: '14px', color: '#8080a0' }}>
-          WASD / Flechas
+          Mazmorra de Hierro
         </div>
       </div>
       <canvas
         ref={canvasRef}
-        width={MAP_WIDTH * TILE_SIZE}
-        height={MAP_HEIGHT * TILE_SIZE}
+        width={800}
+        height={450}
         style={{
           border: '3px solid rgba(100, 100, 150, 0.3)',
           borderRadius: '10px',
@@ -827,6 +929,164 @@ export default function Home() {
           boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
         }}
       />
+
+      <div style={{
+        marginTop: '20px',
+        background: 'linear-gradient(135deg, #3d3d5c 0%, #2d2d44 100%)',
+        padding: '25px 30px',
+        borderRadius: '10px',
+        border: '4px solid #5a5a6a',
+        boxShadow: '0 10px 30px rgba(0, 0, 0, 0.5)',
+        maxWidth: '800px',
+        width: '100%',
+        position: 'relative',
+      }}>
+        <div style={{
+          position: 'absolute',
+          top: '-4px',
+          left: '-4px',
+          right: '-4px',
+          bottom: '-4px',
+          border: '2px solid #8a8a9a',
+          borderRadius: '10px',
+          pointerEvents: 'none',
+        }}></div>
+
+        <div style={{
+          marginBottom: '20px',
+          padding: '15px',
+          background: 'rgba(0, 0, 0, 0.4)',
+          borderRadius: '5px',
+          border: '2px solid #5a5a6a',
+          minHeight: '50px',
+          color: '#e0e0e0',
+          fontSize: '14px',
+          fontFamily: 'monospace',
+        }}>
+          {combatLog.length > 0 ? combatLog[combatLog.length - 1] : '¡El Minotauro de Mazmorra te desafía! Elige tu acción.'}
+        </div>
+
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(4, 1fr)',
+          gap: '12px',
+        }}>
+          <button
+            onClick={() => setSelectedAttack(null)}
+            style={{
+              padding: '18px',
+              background: selectedAttack === null
+                ? 'linear-gradient(135deg, #c9a227 0%, #a8861f 100%)'
+                : 'linear-gradient(135deg, #4a4a6a 0%, #3a3a5a 100%)',
+              color: '#fff',
+              border: selectedAttack === null
+                ? '3px solid #ffd700'
+                : '3px solid #5a5a6a',
+              borderRadius: '5px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: 'bold',
+              transition: 'all 0.3s ease',
+              fontFamily: 'monospace',
+              textShadow: '1px 1px 2px rgba(0, 0, 0, 0.5)',
+            }}
+          >
+            [ATACAR]
+          </button>
+          <button
+            disabled
+            style={{
+              padding: '18px',
+              background: 'linear-gradient(135deg, #3a3a5a 0%, #2a2a4a 100%)',
+              color: '#666',
+              border: '3px solid #4a4a6a',
+              borderRadius: '5px',
+              cursor: 'not-allowed',
+              fontSize: '14px',
+              fontWeight: 'bold',
+              fontFamily: 'monospace',
+            }}
+          >
+            [HABILIDAD]
+          </button>
+          <button
+            disabled
+            style={{
+              padding: '18px',
+              background: 'linear-gradient(135deg, #3a3a5a 0%, #2a2a4a 100%)',
+              color: '#666',
+              border: '3px solid #4a4a6a',
+              borderRadius: '5px',
+              cursor: 'not-allowed',
+              fontSize: '14px',
+              fontWeight: 'bold',
+              fontFamily: 'monospace',
+            }}
+          >
+            [OBJETO]
+          </button>
+          <button
+            disabled
+            style={{
+              padding: '18px',
+              background: 'linear-gradient(135deg, #3a3a5a 0%, #2a2a4a 100%)',
+              color: '#666',
+              border: '3px solid #4a4a6a',
+              borderRadius: '5px',
+              cursor: 'not-allowed',
+              fontSize: '14px',
+              fontWeight: 'bold',
+              fontFamily: 'monospace',
+            }}
+          >
+            [HUIR]
+          </button>
+        </div>
+
+        {selectedAttack === null && (
+          <div style={{
+            marginTop: '20px',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, 1fr)',
+            gap: '12px',
+          }}>
+            {(() => {
+              const playerClass = lobby?.gameState?.players[socket?.id ?? '']?.characterClass || 'warrior';
+              const attacks = ATTACKS[playerClass as keyof typeof ATTACKS] || ATTACKS.warrior;
+              return attacks.map((attack) => (
+                <button
+                  key={attack.id}
+                  onClick={() => handleAttack(attack.id)}
+                  style={{
+                    padding: '15px',
+                    background: 'linear-gradient(135deg, #4a4a6a 0%, #3a3a5a 100%)',
+                    color: '#e0e0e0',
+                    border: '3px solid #5a5a6a',
+                    borderRadius: '5px',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    transition: 'all 0.3s ease',
+                    textAlign: 'left',
+                    fontFamily: 'monospace',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = '#c9a227';
+                    e.currentTarget.style.background = 'linear-gradient(135deg, #5a5a7a 0%, #4a4a6a 100%)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = '#5a5a6a';
+                    e.currentTarget.style.background = 'linear-gradient(135deg, #4a4a6a 0%, #3a3a5a 100%)';
+                  }}
+                >
+                  <div style={{ fontWeight: 'bold', marginBottom: '6px', color: '#ffd700' }}>[{attack.name}]</div>
+                  <div style={{ opacity: 0.9 }}>Daño: {attack.damageMin}-{attack.damageMax}</div>
+                  <div style={{ opacity: 0.9 }}>Precisión: {attack.accuracy}%</div>
+                </button>
+              ));
+            })()}
+          </div>
+        )}
+      </div>
       {isGameOver && (
         <div style={{
           position: 'fixed',
@@ -875,8 +1135,7 @@ export default function Home() {
             color: '#b0b0d0',
             lineHeight: '1.8',
           }}>
-            <div>Piso alcanzado: <strong>{currentFloor}</strong></div>
-            <div>Oro recolectado: <strong>{goldCollected}</strong></div>
+            <div>Mazmorra: <strong>Hierro</strong></div>
           </div>
           <button
             onClick={() => setView('menu')}
@@ -903,81 +1162,6 @@ export default function Home() {
           >
             Volver al Menú
           </button>
-        </div>
-      )}
-      {isMobile && (
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, 60px)',
-          gridTemplateRows: 'repeat(3, 60px)',
-          gap: '5px',
-          marginTop: '20px',
-        }}>
-          <div />
-          <button
-            onTouchStart={() => handleTouchMove('up')}
-            style={{
-              width: '60px',
-              height: '60px',
-              fontSize: '24px',
-              background: '#4a4a6a',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '8px',
-              cursor: 'pointer',
-            }}
-          >
-            ↑
-          </button>
-          <div />
-          <button
-            onTouchStart={() => handleTouchMove('left')}
-            style={{
-              width: '60px',
-              height: '60px',
-              fontSize: '24px',
-              background: '#4a4a6a',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '8px',
-              cursor: 'pointer',
-            }}
-          >
-            ←
-          </button>
-          <div />
-          <button
-            onTouchStart={() => handleTouchMove('right')}
-            style={{
-              width: '60px',
-              height: '60px',
-              fontSize: '24px',
-              background: '#4a4a6a',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '8px',
-              cursor: 'pointer',
-            }}
-          >
-            →
-          </button>
-          <div />
-          <button
-            onTouchStart={() => handleTouchMove('down')}
-            style={{
-              width: '60px',
-              height: '60px',
-              fontSize: '24px',
-              background: '#4a4a6a',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '8px',
-              cursor: 'pointer',
-            }}
-          >
-            ↓
-          </button>
-          <div />
         </div>
       )}
     </main>
