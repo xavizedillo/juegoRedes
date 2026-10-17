@@ -103,7 +103,7 @@ describe('Balance de los 10 niveles', () => {
   }
 
   it('un equipo de 3 jugadores también puede ganar', () => {
-    expect(winRate(['guerrero', 'mago', 'sanadora'], 'smart')).toBeGreaterThanOrEqual(0.9);
-    expect(winRate(['arquera', 'arquera', 'mago'], 'smart')).toBeGreaterThanOrEqual(0.9);
+    expect(winRate(['warrior', 'mage', 'tank'], 'smart')).toBeGreaterThanOrEqual(0.9);
+    expect(winRate(['tank', 'tank', 'mage'], 'smart')).toBeGreaterThanOrEqual(0.9);
   });
 });

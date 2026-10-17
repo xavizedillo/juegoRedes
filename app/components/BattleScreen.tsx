@@ -66,7 +66,7 @@ function PartyMember({ player, isTurn, isMe }: { player: PlayerState; isTurn: bo
       <div style={{
         width: '100%',
         padding: '6px 8px',
-        background: 'rgba(10, 10, 26, 0.75)',
+        background: 'rgba(20, 10, 5, 0.8)',
         borderRadius: '8px',
         border: `2px solid ${isTurn ? '#ffd700' : 'rgba(255,255,255,0.1)'}`,
         marginBottom: '6px',
@@ -85,7 +85,7 @@ function PartyMember({ player, isTurn, isMe }: { player: PlayerState; isTurn: bo
       </div>
       <div className={flash ? 'rw-hit' : isTurn ? 'rw-idle' : undefined} style={{ width: '130px', height: '130px', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
         <AssetImage
-          basePath={characterImagePath(character.id)}
+          src={characterImagePath(character.id)}
           alt={character.name}
           style={{ maxWidth: '130px', maxHeight: '130px', objectFit: 'contain', filter: 'drop-shadow(0 6px 10px rgba(0,0,0,0.6))' }}
           fallback={<CharacterFallback color={character.color} name={character.name} size={100} />}
@@ -111,7 +111,7 @@ export default function BattleScreen({ gameState, myId, onAttack, onDefend }: Ba
   const ownedAttacks = me ? me.attacks.map((id) => getAttack(me.characterId, id)).filter((a): a is AttackDef => !!a) : [];
 
   return (
-    <div style={{ width: '960px', maxWidth: '100%', color: '#fff', fontFamily: 'Arial, sans-serif' }}>
+    <div style={{ width: '960px', maxWidth: '100%', color: '#fff', fontFamily: 'Courier New, monospace' }}>
       <style>{`
         @keyframes rw-shake { 0%,100% { transform: translateX(0); filter: none; } 20% { transform: translateX(-10px); filter: brightness(2) saturate(0.3); } 40% { transform: translateX(8px); } 60% { transform: translateX(-6px); } 80% { transform: translateX(4px); } }
         @keyframes rw-float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
@@ -124,12 +124,12 @@ export default function BattleScreen({ gameState, myId, onAttack, onDefend }: Ba
         height: '440px',
         borderRadius: '14px',
         overflow: 'hidden',
-        border: '3px solid rgba(100, 100, 150, 0.4)',
+        border: '3px solid rgba(139, 69, 19, 0.4)',
         boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
         background: 'linear-gradient(180deg, #16213e 0%, #0f3460 60%, #1a1a2e 100%)',
       }}>
         <AssetImage
-          basePath={scenarioImagePath(level)}
+          src={scenarioImagePath(level)}
           alt={`Escenario ${level}`}
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
           fallback={null}
@@ -142,8 +142,8 @@ export default function BattleScreen({ gameState, myId, onAttack, onDefend }: Ba
           left: '50%',
           transform: 'translateX(-50%)',
           padding: '6px 18px',
-          background: 'rgba(10, 10, 26, 0.75)',
-          borderRadius: '20px',
+          background: 'rgba(20, 10, 5, 0.8)',
+          borderRadius: '4px',
           fontSize: '14px',
           fontWeight: 'bold',
           whiteSpace: 'nowrap',
@@ -153,17 +153,17 @@ export default function BattleScreen({ gameState, myId, onAttack, onDefend }: Ba
 
         {boss && (
           <div style={{ position: 'absolute', top: '50px', right: '30px', width: '360px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <div style={{ width: '100%', padding: '8px 12px', background: 'rgba(10, 10, 26, 0.75)', borderRadius: '10px', marginBottom: '8px' }}>
+            <div style={{ width: '100%', padding: '8px 12px', background: 'rgba(20, 10, 5, 0.8)', borderRadius: '10px', marginBottom: '8px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                 <span style={{ fontWeight: 'bold', fontSize: '16px', color: '#ff8a8a' }}>{boss.name}</span>
-                <span style={{ fontSize: '11px', color: '#a0a0c0' }}>{boss.title}</span>
+                <span style={{ fontSize: '11px', color: '#deb887' }}>{boss.title}</span>
               </div>
               <Bar value={boss.hp} max={boss.maxHp} color="linear-gradient(90deg, #f5576c, #f093fb)" label="PV" height={12} />
               {boss.stunned && <div style={{ fontSize: '11px', color: '#ffd700', marginTop: '3px' }}>Aturdido</div>}
             </div>
             <div className={bossFlash ? 'rw-hit' : 'rw-idle'} style={{ height: '260px', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: boss.hp <= 0 ? 0.2 : 1, transition: 'opacity 0.6s ease' }}>
               <AssetImage
-                basePath={bossImagePath(boss.level)}
+                src={bossImagePath(boss.level)}
                 alt={boss.name}
                 style={{ maxWidth: '340px', maxHeight: '260px', objectFit: 'contain', filter: 'drop-shadow(0 10px 20px rgba(0,0,0,0.7))' }}
                 fallback={<CharacterFallback color="#f5576c" name={boss.name} size={200} />}
@@ -180,8 +180,8 @@ export default function BattleScreen({ gameState, myId, onAttack, onDefend }: Ba
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: '14px', marginTop: '14px' }}>
-        <div style={{ background: 'rgba(26, 26, 46, 0.95)', borderRadius: '12px', padding: '12px', border: '2px solid rgba(100, 100, 150, 0.3)' }}>
-          <div style={{ fontSize: '14px', marginBottom: '8px', color: isMyTurn ? '#ffd700' : '#a0a0c0', fontWeight: 'bold' }}>
+        <div style={{ background: 'rgba(30, 20, 10, 0.95)', borderRadius: '12px', padding: '12px', border: '2px solid rgba(139, 69, 19, 0.3)' }}>
+          <div style={{ fontSize: '14px', marginBottom: '8px', color: isMyTurn ? '#ffd700' : '#deb887', fontWeight: 'bold' }}>
             {gameState.phase !== 'COMBAT'
               ? 'Combate terminado'
               : !me || me.hp <= 0
@@ -203,8 +203,8 @@ export default function BattleScreen({ gameState, myId, onAttack, onDefend }: Ba
                   style={{
                     padding: '7px 8px',
                     textAlign: 'left',
-                    background: enabled ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : 'rgba(60, 60, 90, 0.6)',
-                    color: enabled ? '#fff' : '#8080a0',
+                    background: enabled ? 'linear-gradient(180deg, #c9a227 0%, #8b4513 100%)' : 'rgba(60, 40, 20, 0.6)',
+                    color: enabled ? '#fff' : '#b08a5a',
                     border: 'none',
                     borderRadius: '8px',
                     cursor: enabled ? 'pointer' : 'not-allowed',
@@ -225,8 +225,8 @@ export default function BattleScreen({ gameState, myId, onAttack, onDefend }: Ba
               style={{
                 padding: '7px 8px',
                 textAlign: 'left',
-                background: isMyTurn ? 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)' : 'rgba(60, 60, 90, 0.6)',
-                color: isMyTurn ? '#0a0a1a' : '#8080a0',
+                background: isMyTurn ? 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)' : 'rgba(60, 40, 20, 0.6)',
+                color: isMyTurn ? '#0a0a1a' : '#b08a5a',
                 border: 'none',
                 borderRadius: '8px',
                 cursor: isMyTurn ? 'pointer' : 'not-allowed',
@@ -242,10 +242,10 @@ export default function BattleScreen({ gameState, myId, onAttack, onDefend }: Ba
         <div
           ref={logRef}
           style={{
-            background: 'rgba(26, 26, 46, 0.95)',
+            background: 'rgba(30, 20, 10, 0.95)',
             borderRadius: '12px',
             padding: '12px',
-            border: '2px solid rgba(100, 100, 150, 0.3)',
+            border: '2px solid rgba(139, 69, 19, 0.3)',
             height: '226px',
             overflowY: 'auto',
             fontSize: '12px',

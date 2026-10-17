@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { TILE, type MapData } from '../shared/mapGenerator';
 import type { Lobby, GameState } from '../shared/types';
-import { TOTAL_LEVELS, getCharacter } from '../shared/battleData';
+import { CHARACTERS, TOTAL_LEVELS, getCharacter } from '../shared/battleData';
 import CharacterSelect from './components/CharacterSelect';
 import BattleScreen from './components/BattleScreen';
 import ShopScreen from './components/ShopScreen';
@@ -32,6 +32,8 @@ export default function Home() {
   const [playerName, setPlayerName] = useState('');
   const [lobbyCode, setLobbyCode] = useState('');
   const [error, setError] = useState('');
+  const [connected, setConnected] = useState(false);
+  const [menuCharacter, setMenuCharacter] = useState<string>(CHARACTERS[0]!.id);
   const animationRef = useRef<number>(0);
   const gameStartTimeRef = useRef<number>(0);
   const lobbyRef = useRef<Lobby | null>(null);
@@ -51,10 +53,12 @@ export default function Home() {
     setSocket(newSocket);
 
     newSocket.on('connect', () => {
+      setConnected(true);
       console.log('✅ Conectado al servidor Socket.io');
     });
 
     newSocket.on('disconnect', () => {
+      setConnected(false);
       console.log('❌ Desconectado del servidor Socket.io');
     });
 
@@ -268,7 +272,7 @@ export default function Home() {
       setError('Por favor ingresa tu nombre');
       return;
     }
-    socket?.emit('create_lobby', { playerName });
+    socket?.emit('create_lobby', { playerName, characterId: menuCharacter });
   };
 
   const handleJoinLobby = () => {
@@ -285,7 +289,7 @@ export default function Home() {
     }
 
     console.log('Intentando unirse a sala:', { lobbyId: cleanCode, playerName: cleanName });
-    socket?.emit('join_lobby', { lobbyId: cleanCode, playerName: cleanName });
+    socket?.emit('join_lobby', { lobbyId: cleanCode, playerName: cleanName, characterId: menuCharacter });
   };
 
   const handlePlayerReady = () => {
@@ -371,67 +375,35 @@ export default function Home() {
         justifyContent: 'center',
         alignItems: 'center',
         height: '100vh',
-        background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
+        background: 'linear-gradient(rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.7)), url(/portada.png) center / cover no-repeat',
         margin: 0,
         padding: 0,
         color: '#fff',
-        fontFamily: 'Arial, sans-serif',
+        fontFamily: 'Courier New, monospace',
       }}>
         <div style={{
-          background: 'rgba(26, 26, 46, 0.95)',
+          background: 'rgba(30, 20, 10, 0.95)',
           padding: '50px 60px',
-          borderRadius: '20px',
+          borderRadius: '4px',
           textAlign: 'center',
           boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
-          border: '2px solid rgba(100, 100, 150, 0.3)',
-          maxWidth: '400px',
+          border: '2px solid rgba(139, 69, 19, 0.3)',
+          maxWidth: '520px',
           width: '100%',
         }}>
-          <div style={{
-            width: '80px',
-            height: '80px',
-            margin: '0 auto 20px',
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-            borderRadius: '20px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: '0 10px 30px rgba(102, 126, 234, 0.3)',
-          }}>
-            <div style={{
-              width: '40px',
-              height: '40px',
-              background: '#fff',
-              borderRadius: '8px',
-              transform: 'rotate(45deg)',
-            }}></div>
-          </div>
-          <h1 style={{
-            marginBottom: '10px',
-            fontSize: '32px',
-            fontWeight: 'bold',
-            background: 'linear-gradient(90deg, #667eea, #764ba2)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-          }}>
-            RogueWeb
-          </h1>
-          <p style={{
-            marginBottom: '30px',
-            fontSize: '14px',
-            color: '#a0a0c0',
-            textTransform: 'uppercase',
-            letterSpacing: '2px',
-          }}>
-            Ecos de la Red
-          </p>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/logotipo.png"
+            alt="RogueWeb"
+            style={{ width: '100%', maxWidth: '350px', marginBottom: '20px', imageRendering: 'pixelated' }}
+          />
 
           <div style={{ marginBottom: '25px' }}>
             <label style={{
               display: 'block',
               marginBottom: '8px',
               fontSize: '14px',
-              color: '#b0b0d0',
+              color: '#deb887',
               textAlign: 'left',
             }}>
               Tu Nombre
@@ -448,8 +420,8 @@ export default function Home() {
                 width: '100%',
                 padding: '14px 16px',
                 borderRadius: '10px',
-                border: '2px solid rgba(100, 100, 150, 0.3)',
-                background: 'rgba(20, 20, 40, 0.8)',
+                border: '2px solid rgba(139, 69, 19, 0.3)',
+                background: 'rgba(20, 10, 5, 0.9)',
                 color: '#fff',
                 fontSize: '16px',
                 outline: 'none',
@@ -457,14 +429,21 @@ export default function Home() {
                 boxSizing: 'border-box',
               }}
               onFocus={(e) => {
-                e.target.style.borderColor = '#667eea';
-                e.target.style.boxShadow = '0 0 15px rgba(102, 126, 234, 0.3)';
+                e.target.style.borderColor = '#c9a227';
+                e.target.style.boxShadow = '0 0 15px rgba(201, 162, 39, 0.3)';
               }}
               onBlur={(e) => {
-                e.target.style.borderColor = 'rgba(100, 100, 150, 0.3)';
+                e.target.style.borderColor = 'rgba(139, 69, 19, 0.3)';
                 e.target.style.boxShadow = 'none';
               }}
             />
+          </div>
+
+          <div style={{ marginBottom: '25px', textAlign: 'left' }}>
+            <div style={{ marginBottom: '8px', fontSize: '14px', color: '#deb887', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px' }}>
+              Elige tu personaje
+            </div>
+            <CharacterSelect selectedId={menuCharacter} onSelect={setMenuCharacter} />
           </div>
 
           <div style={{ marginBottom: '30px' }}>
@@ -472,10 +451,10 @@ export default function Home() {
               display: 'block',
               marginBottom: '8px',
               fontSize: '14px',
-              color: '#b0b0d0',
+              color: '#deb887',
               textAlign: 'left',
             }}>
-              Código de Sala <span style={{ fontSize: '12px', color: '#707090' }}>(opcional)</span>
+              Código de Sala <span style={{ fontSize: '12px', color: '#b08a5a' }}>(opcional)</span>
             </label>
             <input
               type="text"
@@ -489,8 +468,8 @@ export default function Home() {
                 width: '100%',
                 padding: '14px 16px',
                 borderRadius: '10px',
-                border: '2px solid rgba(100, 100, 150, 0.3)',
-                background: 'rgba(20, 20, 40, 0.8)',
+                border: '2px solid rgba(139, 69, 19, 0.3)',
+                background: 'rgba(20, 10, 5, 0.9)',
                 color: '#fff',
                 fontSize: '16px',
                 textTransform: 'uppercase',
@@ -500,11 +479,11 @@ export default function Home() {
                 letterSpacing: '2px',
               }}
               onFocus={(e) => {
-                e.target.style.borderColor = '#764ba2';
-                e.target.style.boxShadow = '0 0 15px rgba(118, 75, 162, 0.3)';
+                e.target.style.borderColor = '#8b4513';
+                e.target.style.boxShadow = '0 0 15px rgba(139, 69, 19, 0.3)';
               }}
               onBlur={(e) => {
-                e.target.style.borderColor = 'rgba(100, 100, 150, 0.3)';
+                e.target.style.borderColor = 'rgba(139, 69, 19, 0.3)';
                 e.target.style.boxShadow = 'none';
               }}
             />
@@ -515,7 +494,7 @@ export default function Home() {
               onClick={handleCreateLobby}
               style={{
                 padding: '16px 24px',
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                background: 'linear-gradient(180deg, #c9a227 0%, #8b4513 100%)',
                 color: '#fff',
                 border: 'none',
                 borderRadius: '12px',
@@ -523,15 +502,15 @@ export default function Home() {
                 fontSize: '18px',
                 fontWeight: 'bold',
                 transition: 'all 0.3s ease',
-                boxShadow: '0 4px 15px rgba(102, 126, 234, 0.3)',
+                boxShadow: '0 4px 15px rgba(201, 162, 39, 0.3)',
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.5)';
+                e.currentTarget.style.boxShadow = '0 6px 20px rgba(201, 162, 39, 0.5)';
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.3)';
+                e.currentTarget.style.boxShadow = '0 4px 15px rgba(201, 162, 39, 0.3)';
               }}
             >
               Crear Nueva Sala
@@ -540,7 +519,7 @@ export default function Home() {
               onClick={handleJoinLobby}
               style={{
                 padding: '16px 24px',
-                background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+                background: 'linear-gradient(180deg, #8b4513 0%, #5a2d0a 100%)',
                 color: '#fff',
                 border: 'none',
                 borderRadius: '12px',
@@ -548,15 +527,15 @@ export default function Home() {
                 fontSize: '18px',
                 fontWeight: 'bold',
                 transition: 'all 0.3s ease',
-                boxShadow: '0 4px 15px rgba(240, 147, 251, 0.3)',
+                boxShadow: '0 4px 15px rgba(139, 69, 19, 0.3)',
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.boxShadow = '0 6px 20px rgba(240, 147, 251, 0.5)';
+                e.currentTarget.style.boxShadow = '0 6px 20px rgba(139, 69, 19, 0.5)';
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = '0 4px 15px rgba(240, 147, 251, 0.3)';
+                e.currentTarget.style.boxShadow = '0 4px 15px rgba(139, 69, 19, 0.3)';
               }}
             >
               Unirse a Sala
@@ -582,8 +561,8 @@ export default function Home() {
             fontSize: '12px',
             color: '#606080',
           }}>
-            {socket?.connected ? (
-              <span style={{ color: '#667eea' }}>● Conectado al servidor</span>
+            {connected ? (
+              <span style={{ color: '#c9a227' }}>● Conectado al servidor</span>
             ) : (
               <span style={{ color: '#ff4444' }}>● Desconectado del servidor</span>
             )}
@@ -602,19 +581,19 @@ export default function Home() {
         alignItems: 'center',
         minHeight: '100vh',
         boxSizing: 'border-box',
-        background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
+        background: 'linear-gradient(rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.7)), url(/portada.png) center / cover no-repeat',
         margin: 0,
         padding: '20px 0',
         color: '#fff',
-        fontFamily: 'Arial, sans-serif',
+        fontFamily: 'Courier New, monospace',
       }}>
         <div style={{
-          background: 'rgba(26, 26, 46, 0.95)',
+          background: 'rgba(30, 20, 10, 0.95)',
           padding: '40px 50px',
-          borderRadius: '20px',
+          borderRadius: '4px',
           textAlign: 'center',
           boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
-          border: '2px solid rgba(100, 100, 150, 0.3)',
+          border: '2px solid rgba(139, 69, 19, 0.3)',
           maxWidth: '720px',
           boxSizing: 'border-box',
           width: '100%',
@@ -623,12 +602,12 @@ export default function Home() {
             width: '70px',
             height: '70px',
             margin: '0 auto 15px',
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            background: 'linear-gradient(180deg, #c9a227 0%, #8b4513 100%)',
             borderRadius: '15px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            boxShadow: '0 10px 30px rgba(102, 126, 234, 0.3)',
+            boxShadow: '0 10px 30px rgba(201, 162, 39, 0.3)',
           }}>
             <div style={{
               width: '30px',
@@ -641,7 +620,7 @@ export default function Home() {
             marginBottom: '10px',
             fontSize: '28px',
             fontWeight: 'bold',
-            background: 'linear-gradient(90deg, #667eea, #764ba2)',
+            background: 'linear-gradient(90deg, #c9a227, #ffd700, #c9a227)',
             WebkitBackgroundClip: 'text',
             WebkitTextFillColor: 'transparent',
           }}>
@@ -650,7 +629,7 @@ export default function Home() {
           <p style={{
             marginBottom: '30px',
             fontSize: '14px',
-            color: '#a0a0c0',
+            color: '#deb887',
           }}>
             Comparte este código con tus amigos
           </p>
@@ -659,7 +638,7 @@ export default function Home() {
             <h2 style={{
               marginBottom: '15px',
               fontSize: '18px',
-              color: '#b0b0d0',
+              color: '#deb887',
             }}>
               Elige tu personaje
             </h2>
@@ -674,7 +653,7 @@ export default function Home() {
             <h2 style={{
               marginBottom: '15px',
               fontSize: '18px',
-              color: '#b0b0d0',
+              color: '#deb887',
             }}>
               Jugadores ({lobby.players.length}/3)
             </h2>
@@ -683,9 +662,9 @@ export default function Home() {
                 <li key={player.id} style={{
                   marginBottom: '12px',
                   padding: '15px',
-                  background: 'rgba(42, 42, 74, 0.8)',
+                  background: 'rgba(42, 26, 10, 0.85)',
                   borderRadius: '10px',
-                  border: '1px solid rgba(100, 100, 150, 0.2)',
+                  border: '1px solid rgba(139, 69, 19, 0.2)',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
@@ -715,7 +694,7 @@ export default function Home() {
                   </span>
                   <span style={{
                     fontSize: '14px',
-                    color: player.isReady ? '#667eea' : '#666',
+                    color: player.isReady ? '#c9a227' : '#666',
                     fontWeight: 'bold',
                   }}>
                     {player.isReady ? 'LISTO' : 'ESPERANDO'}
@@ -735,7 +714,7 @@ export default function Home() {
                 padding: '14px 24px',
                 background: lobby.players.find(p => p.id === socket?.id)?.isReady
                   ? 'linear-gradient(135deg, #ff6b6b 0%, #ee5a5a 100%)'
-                  : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  : 'linear-gradient(180deg, #c9a227 0%, #8b4513 100%)',
                 color: '#fff',
                 border: 'none',
                 borderRadius: '12px',
@@ -743,15 +722,15 @@ export default function Home() {
                 fontSize: '16px',
                 fontWeight: 'bold',
                 transition: 'all 0.3s ease',
-                boxShadow: '0 4px 15px rgba(102, 126, 234, 0.3)',
+                boxShadow: '0 4px 15px rgba(201, 162, 39, 0.3)',
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.5)';
+                e.currentTarget.style.boxShadow = '0 6px 20px rgba(201, 162, 39, 0.5)';
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.3)';
+                e.currentTarget.style.boxShadow = '0 4px 15px rgba(201, 162, 39, 0.3)';
               }}
             >
               {lobby.players.find(p => p.id === socket?.id)?.isReady ? 'Cancelar' : 'Estoy Listo'}
@@ -763,7 +742,7 @@ export default function Home() {
                 style={{
                   padding: '14px 24px',
                   background: lobby.players.every(p => p.isReady)
-                    ? 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)'
+                    ? 'linear-gradient(180deg, #8b4513 0%, #5a2d0a 100%)'
                     : 'linear-gradient(135deg, #666 0%, #444 100%)',
                   color: '#fff',
                   border: 'none',
@@ -772,18 +751,18 @@ export default function Home() {
                   fontSize: '16px',
                   fontWeight: 'bold',
                   transition: 'all 0.3s ease',
-                  boxShadow: '0 4px 15px rgba(240, 147, 251, 0.3)',
+                  boxShadow: '0 4px 15px rgba(139, 69, 19, 0.3)',
                   opacity: lobby.players.every(p => p.isReady) ? 1 : 0.5,
                 }}
                 onMouseEnter={(e) => {
                   if (lobby.players.every(p => p.isReady)) {
                     e.currentTarget.style.transform = 'translateY(-2px)';
-                    e.currentTarget.style.boxShadow = '0 6px 20px rgba(240, 147, 251, 0.5)';
+                    e.currentTarget.style.boxShadow = '0 6px 20px rgba(139, 69, 19, 0.5)';
                   }
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.transform = 'translateY(0)';
-                  e.currentTarget.style.boxShadow = '0 4px 15px rgba(240, 147, 251, 0.3)';
+                  e.currentTarget.style.boxShadow = '0 4px 15px rgba(139, 69, 19, 0.3)';
                 }}
               >
                 Iniciar Partida
@@ -811,8 +790,8 @@ export default function Home() {
               marginTop: '20px',
               padding: '10px 20px',
               background: 'transparent',
-              color: '#8080a0',
-              border: '1px solid rgba(128, 128, 160, 0.3)',
+              color: '#b08a5a',
+              border: '1px solid rgba(139, 69, 19, 0.3)',
               borderRadius: '8px',
               cursor: 'pointer',
               fontSize: '14px',
@@ -823,8 +802,8 @@ export default function Home() {
               e.currentTarget.style.borderColor = '#fff';
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.color = '#8080a0';
-              e.currentTarget.style.borderColor = 'rgba(128, 128, 160, 0.3)';
+              e.currentTarget.style.color = '#b08a5a';
+              e.currentTarget.style.borderColor = 'rgba(139, 69, 19, 0.3)';
             }}
           >
             Volver al menú
@@ -848,13 +827,13 @@ export default function Home() {
       alignItems: 'center',
       minHeight: '100vh',
       boxSizing: 'border-box',
-      background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
+      background: 'linear-gradient(rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.7)), url(/portada.png) center / cover no-repeat',
       margin: 0,
       padding: '20px 0',
-      fontFamily: 'Arial, sans-serif',
+      fontFamily: 'Courier New, monospace',
     }}>
       <div style={{
-        background: 'rgba(26, 26, 46, 0.95)',
+        background: 'rgba(30, 20, 10, 0.95)',
         padding: '15px 40px',
         borderRadius: '15px',
         marginBottom: '20px',
@@ -862,7 +841,7 @@ export default function Home() {
         gap: '40px',
         color: '#fff',
         fontSize: '16px',
-        border: '2px solid rgba(100, 100, 150, 0.3)',
+        border: '2px solid rgba(139, 69, 19, 0.3)',
         boxShadow: '0 10px 30px rgba(0, 0, 0, 0.3)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -887,7 +866,7 @@ export default function Home() {
           <div style={{
             width: '16px',
             height: '16px',
-            background: '#667eea',
+            background: '#c9a227',
             borderRadius: '4px',
           }}></div>
           <span><strong>Nivel:</strong> {currentFloor} / {TOTAL_LEVELS}</span>
@@ -897,7 +876,7 @@ export default function Home() {
             <strong>{getCharacter(me.characterId).name}</strong> Nv {me.level}
           </div>
         )}
-        <div style={{ fontSize: '14px', color: '#8080a0' }}>
+        <div style={{ fontSize: '14px', color: '#b08a5a' }}>
           {showBattle ? 'Combate por turnos' : showShop ? 'Tienda' : 'WASD / Flechas · llega a la salida roja'}
         </div>
       </div>
@@ -911,7 +890,7 @@ export default function Home() {
           width={MAP_WIDTH * TILE_SIZE}
           height={MAP_HEIGHT * TILE_SIZE}
           style={{
-            border: '3px solid rgba(100, 100, 150, 0.3)',
+            border: '3px solid rgba(139, 69, 19, 0.3)',
             borderRadius: '10px',
             background: '#0f0f1a',
             boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
@@ -924,12 +903,12 @@ export default function Home() {
           top: '50%',
           left: '50%',
           transform: 'translate(-50%, -50%)',
-          background: 'rgba(26, 26, 46, 0.98)',
+          background: 'rgba(30, 20, 10, 0.98)',
           padding: '50px 60px',
-          borderRadius: '20px',
+          borderRadius: '4px',
           textAlign: 'center',
           color: '#fff',
-          border: '2px solid rgba(100, 100, 150, 0.3)',
+          border: '2px solid rgba(139, 69, 19, 0.3)',
           boxShadow: '0 20px 60px rgba(0, 0, 0, 0.7)',
           zIndex: 1000,
         }}>
@@ -938,9 +917,9 @@ export default function Home() {
             height: '80px',
             margin: '0 auto 20px',
             background: gameStatus === 'VICTORY'
-              ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+              ? 'linear-gradient(180deg, #c9a227 0%, #8b4513 100%)'
               : 'linear-gradient(135deg, #ff6b6b 0%, #ee5a5a 100%)',
-            borderRadius: '20px',
+            borderRadius: '4px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -953,7 +932,7 @@ export default function Home() {
             }}></div>
           </div>
           <h2 style={{
-            color: gameStatus === 'VICTORY' ? '#667eea' : '#ff6b6b',
+            color: gameStatus === 'VICTORY' ? '#c9a227' : '#ff6b6b',
             marginBottom: '20px',
             fontSize: '36px',
             fontWeight: 'bold',
@@ -963,7 +942,7 @@ export default function Home() {
           <div style={{
             marginBottom: '30px',
             fontSize: '18px',
-            color: '#b0b0d0',
+            color: '#deb887',
             lineHeight: '1.8',
           }}>
             <div>Nivel alcanzado: <strong>{currentFloor} / {TOTAL_LEVELS}</strong></div>
@@ -974,7 +953,7 @@ export default function Home() {
             onClick={() => setView('menu')}
             style={{
               padding: '16px 32px',
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              background: 'linear-gradient(180deg, #c9a227 0%, #8b4513 100%)',
               color: '#fff',
               border: 'none',
               borderRadius: '12px',
@@ -982,15 +961,15 @@ export default function Home() {
               fontSize: '18px',
               fontWeight: 'bold',
               transition: 'all 0.3s ease',
-              boxShadow: '0 4px 15px rgba(102, 126, 234, 0.3)',
+              boxShadow: '0 4px 15px rgba(201, 162, 39, 0.3)',
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.transform = 'translateY(-2px)';
-              e.currentTarget.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.5)';
+              e.currentTarget.style.boxShadow = '0 6px 20px rgba(201, 162, 39, 0.5)';
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.3)';
+              e.currentTarget.style.boxShadow = '0 4px 15px rgba(201, 162, 39, 0.3)';
             }}
           >
             Volver al Menú

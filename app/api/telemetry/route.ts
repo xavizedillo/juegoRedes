@@ -44,7 +44,16 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const body = await request.json() as {
+      playerId?: string;
+      partySize?: number;
+      floorReached?: number;
+      bossesDefeated?: number;
+      goldCollected?: number;
+      status?: string;
+      playtimeMinutes?: number;
+      inventory?: any;
+    };
 
     const telemetry = await prisma.matchTelemetry.create({
       data: {

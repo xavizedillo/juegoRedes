@@ -47,7 +47,7 @@ describe('Game Logic', () => {
         expect(character.attacks).toHaveLength(15);
         expect(new Set(character.attacks.map((a) => a.id)).size).toBe(15);
         const player = createPlayerState('p', 'P', character.id);
-        expect(player.attacks).toHaveLength(2);
+        expect(player.attacks).toHaveLength(1);
       }
     });
   });
@@ -55,8 +55,8 @@ describe('Game Logic', () => {
   describe('combate por turnos', () => {
     it('los jugadores atacan en orden y luego ataca el jefe', () => {
       const state = createGameState([
-        { id: 'a', name: 'A', characterId: 'guerrero' },
-        { id: 'b', name: 'B', characterId: 'mago' },
+        { id: 'a', name: 'A', characterId: 'warrior' },
+        { id: 'b', name: 'B', characterId: 'mage' },
       ]);
       startCombat(state);
       const basicA = state.players['a']!.attacks[0]!;
@@ -79,19 +79,19 @@ describe('Game Logic', () => {
     });
 
     it('no permite usar ataques bloqueados', () => {
-      const state = createGameState([{ id: 'a', name: 'A', characterId: 'arquera' }]);
+      const state = createGameState([{ id: 'a', name: 'A', characterId: 'tank' }]);
       startCombat(state);
-      const locked = getCharacter('arquera').attacks[10]!.id;
+      const locked = getCharacter('tank').attacks[10]!.id;
       const result = performCombatAction(state, 'a', { type: 'attack', attackId: locked }, fixedRng);
       expect(result.ok).toBe(false);
     });
 
     it('defender reduce el daño recibido', () => {
-      const attackState = createGameState([{ id: 'a', name: 'A', characterId: 'guerrero' }]);
-      const defendState = createGameState([{ id: 'a', name: 'A', characterId: 'guerrero' }]);
+      const attackState = createGameState([{ id: 'a', name: 'A', characterId: 'warrior' }]);
+      const defendState = createGameState([{ id: 'a', name: 'A', characterId: 'warrior' }]);
       startCombat(attackState);
       startCombat(defendState);
-      performCombatAction(attackState, 'a', { type: 'attack', attackId: 'guerrero-01' }, fixedRng);
+      performCombatAction(attackState, 'a', { type: 'attack', attackId: 'sword_thrust' }, fixedRng);
       performCombatAction(defendState, 'a', { type: 'defend' }, fixedRng);
       const lostAttacking = attackState.players['a']!.maxHp - attackState.players['a']!.hp;
       const lostDefending = defendState.players['a']!.maxHp - defendState.players['a']!.hp;
@@ -99,10 +99,10 @@ describe('Game Logic', () => {
     });
 
     it('al vencer al jefe se abre la tienda y se recibe oro', () => {
-      const state = createGameState([{ id: 'a', name: 'A', characterId: 'mago' }]);
+      const state = createGameState([{ id: 'a', name: 'A', characterId: 'mage' }]);
       startCombat(state);
       state.boss!.hp = 1;
-      performCombatAction(state, 'a', { type: 'attack', attackId: 'mago-01' }, fixedRng);
+      performCombatAction(state, 'a', { type: 'attack', attackId: 'fire_spell' }, fixedRng);
       expect(state.phase).toBe('SHOP');
       expect(state.players['a']!.gold).toBeGreaterThan(0);
       expect(state.players['a']!.level).toBe(2);
@@ -110,26 +110,26 @@ describe('Game Logic', () => {
     });
 
     it('vencer al jefe del nivel 10 da la victoria', () => {
-      const state = createGameState([{ id: 'a', name: 'A', characterId: 'mago' }]);
+      const state = createGameState([{ id: 'a', name: 'A', characterId: 'mage' }]);
       state.floor = TOTAL_LEVELS;
       startCombat(state);
       state.boss!.hp = 1;
-      performCombatAction(state, 'a', { type: 'attack', attackId: 'mago-01' }, fixedRng);
+      performCombatAction(state, 'a', { type: 'attack', attackId: 'fire_spell' }, fixedRng);
       expect(state.phase).toBe('VICTORY');
     });
 
     it('si todos caen es game over', () => {
-      const state = createGameState([{ id: 'a', name: 'A', characterId: 'mago' }]);
+      const state = createGameState([{ id: 'a', name: 'A', characterId: 'mage' }]);
       startCombat(state);
       state.players['a']!.hp = 1;
-      performCombatAction(state, 'a', { type: 'attack', attackId: 'mago-01' }, fixedRng);
+      performCombatAction(state, 'a', { type: 'attack', attackId: 'fire_spell' }, fixedRng);
       expect(state.phase).toBe('GAME_OVER');
     });
 
     it('si se desconecta el jugador en turno, pasa al siguiente', () => {
       const state = createGameState([
-        { id: 'a', name: 'A', characterId: 'guerrero' },
-        { id: 'b', name: 'B', characterId: 'mago' },
+        { id: 'a', name: 'A', characterId: 'warrior' },
+        { id: 'b', name: 'B', characterId: 'mage' },
       ]);
       startCombat(state);
       removePlayerFromGame(state, 'a', fixedRng);
@@ -139,16 +139,16 @@ describe('Game Logic', () => {
 
   describe('tienda', () => {
     it('permite comprar ataques con oro y pasar al siguiente nivel', () => {
-      const state = createGameState([{ id: 'a', name: 'A', characterId: 'sanadora' }]);
+      const state = createGameState([{ id: 'a', name: 'A', characterId: 'tank' }]);
       state.phase = 'SHOP';
-      const attack = getCharacter('sanadora').attacks[2]!;
+      const attack = getCharacter('tank').attacks[2]!;
       expect(buyAttack(state, 'a', attack.id).ok).toBe(false);
       state.players['a']!.gold = attack.price;
       expect(buyAttack(state, 'a', attack.id).ok).toBe(true);
       expect(state.players['a']!.gold).toBe(0);
       expect(state.players['a']!.attacks).toContain(attack.id);
       expect(buyAttack(state, 'a', attack.id).ok).toBe(false);
-      expect(buyAttack(state, 'a', 'mago-03').ok).toBe(false);
+      expect(buyAttack(state, 'a', 'lightning_bolt').ok).toBe(false);
 
       expect(setShopReady(state, 'a')).toBe(true);
       advanceToNextFloor(state);
@@ -159,7 +159,7 @@ describe('Game Logic', () => {
 
   describe('validateMovement', () => {
     it('debe permitir movimiento a casilla transitable', () => {
-      const player = createPlayerState('player1', 'P1', 'guerrero');
+      const player = createPlayerState('player1', 'P1', 'warrior');
 
       const map: number[][] = [
         [1, 1, 1],
@@ -175,7 +175,7 @@ describe('Game Logic', () => {
     });
 
     it('debe rechazar movimiento a casilla no transitable', () => {
-      const player = createPlayerState('player1', 'P1', 'guerrero');
+      const player = createPlayerState('player1', 'P1', 'warrior');
 
       const map: number[][] = [
         [1, 1, 1],

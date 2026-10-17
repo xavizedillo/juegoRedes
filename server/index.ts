@@ -53,12 +53,13 @@ function startNextFloor(lobby: Lobby): void {
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
 
-  socket.on('create_lobby', (data: { playerName: string }) => {
+  socket.on('create_lobby', (data: { playerName: string; characterId?: string }) => {
     const lobbyId = generateLobbyId();
     const player: LobbyPlayer = {
       id: socket.id,
       name: data.playerName,
       isReady: false,
+      ...(data.characterId && isValidCharacter(data.characterId) ? { characterId: data.characterId } : {}),
     };
 
     const lobby: Lobby = {
@@ -75,7 +76,7 @@ io.on('connection', (socket) => {
     io.to(lobbyId).emit('lobby_updated', lobby);
   });
 
-  socket.on('join_lobby', (data: { lobbyId: string; playerName: string }) => {
+  socket.on('join_lobby', (data: { lobbyId: string; playerName: string; characterId?: string }) => {
     const lobby = lobbies.get(data.lobbyId);
 
     if (!lobby) {
@@ -97,6 +98,7 @@ io.on('connection', (socket) => {
       id: socket.id,
       name: data.playerName,
       isReady: false,
+      ...(data.characterId && isValidCharacter(data.characterId) ? { characterId: data.characterId } : {}),
     };
 
     lobby.players.push(player);
