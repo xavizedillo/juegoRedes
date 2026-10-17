@@ -1,7 +1,7 @@
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import { generateMap } from '../shared/mapGenerator';
+import { generateMap, TILE } from '../shared/mapGenerator';
 import type { Lobby, LobbyPlayer } from '../shared/types';
 import { validateMovement, calculateBossStats, processCombatTurn } from './gameLogic';
 
@@ -138,28 +138,50 @@ io.on('connection', (socket) => {
   });
 
   socket.on('player_move', (data: { lobbyId: string; targetX: number; targetY: number }) => {
+    console.log('Movimiento recibido:', { socketId: socket.id, ...data });
+
     const lobby = lobbies.get(data.lobbyId);
     if (!lobby || !lobby.gameState) {
+      console.log('Error: Partida no iniciada');
       socket.emit('error', { message: 'Partida no iniciada' });
       return;
     }
 
     const player = lobby.gameState.players[socket.id];
     if (!player) {
+      console.log('Error: Jugador no encontrado');
       socket.emit('error', { message: 'Jugador no encontrado' });
       return;
     }
 
+    console.log('Posición actual del jugador:', { x: player.x, y: player.y });
+    console.log('Posición objetivo:', { x: data.targetX, y: data.targetY });
+
     const map = activeMaps.get(data.lobbyId);
     if (!map) {
+      console.log('Error: Mapa no encontrado');
       socket.emit('error', { message: 'Mapa no encontrado' });
       return;
     }
 
     const isValid = validateMovement(player, data.targetX, data.targetY, map);
+    console.log('Validación de movimiento:', isValid);
+
     if (isValid) {
+      player.x = data.targetX;
+      player.y = data.targetY;
+
+      const tile = map[data.targetY]?.[data.targetX];
+      if (tile === TILE.EXIT) {
+        io.to(data.lobbyId).emit('game_completed', {
+          winner: socket.id,
+          gameState: lobby.gameState,
+        });
+      }
+
       io.to(data.lobbyId).emit('game_state_update', { gameState: lobby.gameState });
     } else {
+      console.log('Error: Movimiento inválido');
       socket.emit('error', { message: 'Movimiento inválido' });
     }
   });

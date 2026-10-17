@@ -41,3 +41,30 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+
+    const telemetry = await prisma.matchTelemetry.create({
+      data: {
+        playerId: body.playerId || 'unknown',
+        partySize: body.partySize || 1,
+        floorReached: body.floorReached || 1,
+        bossesDefeated: body.bossesDefeated || 0,
+        goldCollected: body.goldCollected || 0,
+        status: body.status || 'GAME_OVER',
+        playtimeMinutes: body.playtimeMinutes || 0,
+        inventory: body.inventory || {},
+      },
+    });
+
+    return NextResponse.json({ success: true, telemetry }, { status: 201 });
+  } catch (error) {
+    console.error('Error saving telemetry:', error);
+    return NextResponse.json(
+      { error: 'Failed to save telemetry data' },
+      { status: 500 }
+    );
+  }
+}

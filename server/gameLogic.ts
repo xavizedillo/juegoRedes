@@ -27,6 +27,13 @@ export function validateMovement(player: PlayerState, targetX: number, targetY: 
     return false;
   }
 
+  const dx = Math.abs(targetX - player.x);
+  const dy = Math.abs(targetY - player.y);
+
+  if (dx + dy !== 1) {
+    return false;
+  }
+
   const tile = map[targetY]?.[targetX];
   if (tile === undefined || !isWalkable(tile as 0 | 1 | 2 | 3)) {
     return false;

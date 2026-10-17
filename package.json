@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "description": "RogueWeb: Echoes of the Grid - 2D Roguelike Multiplayer Game",
   "scripts": {
-    "dev": "concurrently \"next dev\" \"tsx server/index.ts\"",
+    "dev": "next dev",
+    "dev:full": "concurrently \"next dev\" \"tsx server/index.ts\"",
     "build": "next build",
     "start": "next start",
     "server": "tsx --tsconfig tsconfig.server.json server/index.ts",

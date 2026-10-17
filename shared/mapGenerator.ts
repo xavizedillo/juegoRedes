@@ -30,7 +30,29 @@ export function generateMap(width: number = 20, height: number = 20): MapData {
 
   ensurePath(map, entrance, exit, width, height);
 
+  ensureAreaAroundEntrance(map, entrance, width, height);
+
   return map;
+}
+
+function ensureAreaAroundEntrance(map: MapData, entrance: { x: number; y: number }, width: number, height: number): void {
+  const directions = [
+    { dx: 0, dy: -1 },
+    { dx: 1, dy: 0 },
+    { dx: 0, dy: 1 },
+    { dx: -1, dy: 0 },
+  ];
+
+  for (const dir of directions) {
+    const nx = entrance.x + dir.dx;
+    const ny = entrance.y + dir.dy;
+
+    if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+      if (map[ny]![nx] === TILE.WALL) {
+        map[ny]![nx] = TILE.FLOOR;
+      }
+    }
+  }
 }
 
 function ensurePath(map: MapData, start: { x: number; y: number }, end: { x: number; y: number }, width: number, height: number): void {
