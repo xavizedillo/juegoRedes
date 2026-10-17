@@ -1,0 +1,985 @@
+'use client';
+
+import { useEffect, useRef, useState } from 'react';
+import { io, Socket } from 'socket.io-client';
+import { TILE, type MapData } from '../shared/mapGenerator';
+import type { Lobby, Boss } from '../shared/types';
+
+const TILE_SIZE = 30;
+const MAP_WIDTH = 20;
+const MAP_HEIGHT = 20;
+
+const COLORS = {
+  [TILE.FLOOR]: '#2a2a4a',
+  [TILE.WALL]: '#4a4a6a',
+  [TILE.ENTRANCE]: '#00ff88',
+  [TILE.EXIT]: '#ff4444',
+  PLAYER: '#ffff00',
+};
+
+export default function Home() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [socket, setSocket] = useState<Socket | null>(null);
+  const [map, setMap] = useState<MapData>([]);
+  const [player, setPlayer] = useState({ x: 1, y: 1 });
+  const [isMobile, setIsMobile] = useState(false);
+  const [view, setView] = useState<'menu' | 'lobby' | 'game'>('menu');
+  const [lobby, setLobby] = useState<Lobby | null>(null);
+  const [playerName, setPlayerName] = useState('');
+  const [lobbyCode, setLobbyCode] = useState('');
+  const [error, setError] = useState('');
+  const [boss, setBoss] = useState<Boss | null>(null);
+  const animationRef = useRef<number>(0);
+  const [gameStartTime, setGameStartTime] = useState<number>(0);
+  const [goldCollected, setGoldCollected] = useState(0);
+  const [currentFloor, setCurrentFloor] = useState(1);
+  const [isGameOver, setIsGameOver] = useState(false);
+  const [gameStatus, setGameStatus] = useState<'VICTORY' | 'GAME_OVER' | 'PLAYING'>('PLAYING');
+
+  useEffect(() => {
+    const newSocket = io('http://localhost:3001', {
+      transports: ['websocket', 'polling'],
+    });
+    setSocket(newSocket);
+
+    newSocket.on('connect', () => {
+      console.log('✅ Conectado al servidor Socket.io');
+    });
+
+    newSocket.on('disconnect', () => {
+      console.log('❌ Desconectado del servidor Socket.io');
+    });
+
+    newSocket.on('connect_error', (error) => {
+      console.error('❌ Error de conexión:', error);
+    });
+
+    newSocket.on('lobby_created', (data: { lobbyId: string; lobby: Lobby }) => {
+      console.log('🏰 Sala creada:', data);
+      setLobby(data.lobby);
+      setView('lobby');
+    });
+
+    newSocket.on('lobby_updated', (updatedLobby: Lobby) => {
+      console.log('🔄 Sala actualizada:', updatedLobby);
+      setLobby(updatedLobby);
+    });
+
+    newSocket.on('game_started', (data: { lobby: Lobby; map: MapData; boss: Boss }) => {
+      setLobby(data.lobby);
+      setMap(data.map);
+      setBoss(data.boss);
+      setView('game');
+      setGameStartTime(Date.now());
+      setGoldCollected(0);
+      setCurrentFloor(1);
+      setIsGameOver(false);
+      setGameStatus('PLAYING');
+    });
+
+    newSocket.on('game_state_update', (data: { gameState: any; boss?: Boss }) => {
+      if (lobby) {
+        setLobby({ ...lobby, gameState: data.gameState });
+      }
+      if (data.boss) {
+        setBoss(data.boss);
+      }
+      if (data.gameState?.players[socket?.id ?? '']) {
+        const playerData = data.gameState.players[socket?.id ?? ''];
+        setPlayer({
+          x: playerData.x,
+          y: playerData.y,
+        });
+        setGoldCollected(playerData.gold || 0);
+        setCurrentFloor(data.gameState.floor || 1);
+      }
+    });
+
+    newSocket.on('game_completed', async (data: { winner: string; gameState: any }) => {
+      setIsGameOver(true);
+      const playtimeMinutes = Math.floor((Date.now() - gameStartTime) / 60000);
+      const status = data.winner === socket?.id ? 'VICTORY' : 'GAME_OVER';
+
+      setGameStatus(status);
+
+      const telemetryData = {
+        playerId: socket?.id || 'unknown',
+        partySize: lobby?.players.length || 1,
+        floorReached: data.gameState.floor || 1,
+        bossesDefeated: 0,
+        goldCollected: goldCollected,
+        status: status,
+        playtimeMinutes: playtimeMinutes,
+        inventory: data.gameState.players[socket?.id ?? '']?.inventory || {},
+      };
+
+      try {
+        await fetch('/api/telemetry', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(telemetryData),
+        });
+        console.log('Telemetry saved successfully');
+      } catch (error) {
+        console.error('Error saving telemetry:', error);
+      }
+    });
+
+    newSocket.on('error', (err: { message: string }) => {
+      console.error('❌ Error del servidor:', err);
+      setError(err.message);
+    });
+
+    return () => {
+      newSocket.disconnect();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (view === 'game') {
+      setIsMobile(/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent));
+    }
+  }, [view]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || view !== 'game') return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const render = () => {
+      ctx.fillStyle = '#0f0f1a';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      for (let y = 0; y < MAP_HEIGHT; y++) {
+        for (let x = 0; x < MAP_WIDTH; x++) {
+          ctx.fillStyle = COLORS[map[y]![x]! as keyof typeof COLORS];
+          ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+          ctx.strokeStyle = '#1a1a3a';
+          ctx.strokeRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        }
+      }
+
+      if (lobby?.gameState?.players) {
+        Object.values(lobby.gameState.players).forEach((p: any) => {
+          ctx.fillStyle = p.id === socket?.id ? COLORS.PLAYER : '#ff8800';
+          ctx.beginPath();
+          ctx.arc(
+            p.x * TILE_SIZE + TILE_SIZE / 2,
+            p.y * TILE_SIZE + TILE_SIZE / 2,
+            TILE_SIZE / 3,
+            0,
+            Math.PI * 2
+          );
+          ctx.fill();
+        });
+      }
+
+      animationRef.current = requestAnimationFrame(render);
+    };
+
+    render();
+
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, [map, player, view]);
+
+  useEffect(() => {
+    if (view !== 'game') return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      let dx = 0;
+      let dy = 0;
+
+      switch (e.key) {
+        case 'ArrowUp':
+        case 'w':
+        case 'W':
+          dy = -1;
+          break;
+        case 'ArrowDown':
+        case 's':
+        case 'S':
+          dy = 1;
+          break;
+        case 'ArrowLeft':
+        case 'a':
+        case 'A':
+          dx = -1;
+          break;
+        case 'ArrowRight':
+        case 'd':
+        case 'D':
+          dx = 1;
+          break;
+        default:
+          return;
+      }
+
+      const currentPlayer = lobby?.gameState?.players[socket?.id ?? ''];
+      console.log('Tecla presionada:', e.key, { dx, dy });
+      console.log('Posición actual del jugador (cliente):', currentPlayer);
+
+      if (!currentPlayer) {
+        console.log('Jugador no encontrado en gameState');
+        return;
+      }
+
+      const newX = currentPlayer.x + dx;
+      const newY = currentPlayer.y + dy;
+
+      console.log('Enviando movimiento:', { from: { x: currentPlayer.x, y: currentPlayer.y }, to: { x: newX, y: newY } });
+
+      if (lobby) {
+        socket?.emit('player_move', { lobbyId: lobby.id, targetX: newX, targetY: newY });
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [map, view, lobby, socket]);
+
+  const handleCreateLobby = () => {
+    if (!playerName.trim()) {
+      setError('Por favor ingresa tu nombre');
+      return;
+    }
+    socket?.emit('create_lobby', { playerName });
+  };
+
+  const handleJoinLobby = () => {
+    const cleanName = playerName.trim();
+    const cleanCode = lobbyCode.trim();
+
+    if (!cleanName) {
+      setError('Por favor ingresa tu nombre');
+      return;
+    }
+    if (!cleanCode) {
+      setError('Por favor ingresa el código de sala');
+      return;
+    }
+
+    console.log('Intentando unirse a sala:', { lobbyId: cleanCode, playerName: cleanName });
+    socket?.emit('join_lobby', { lobbyId: cleanCode, playerName: cleanName });
+  };
+
+  const handlePlayerReady = () => {
+    if (lobby) {
+      socket?.emit('player_ready', { lobbyId: lobby.id });
+    }
+  };
+
+  const handleStartGame = () => {
+    if (lobby) {
+      socket?.emit('start_game', { lobbyId: lobby.id });
+    }
+  };
+
+  const handleTouchMove = (direction: string) => {
+    let dx = 0;
+    let dy = 0;
+
+    switch (direction) {
+      case 'up':
+        dy = -1;
+        break;
+      case 'down':
+        dy = 1;
+        break;
+      case 'left':
+        dx = -1;
+        break;
+      case 'right':
+        dx = 1;
+        break;
+      default:
+        return;
+    }
+
+    const currentPlayer = lobby?.gameState?.players[socket?.id ?? ''];
+    if (!currentPlayer) return;
+
+    const newX = currentPlayer.x + dx;
+    const newY = currentPlayer.y + dy;
+
+    if (lobby) {
+      socket?.emit('player_move', { lobbyId: lobby.id, targetX: newX, targetY: newY });
+    }
+  };
+
+  if (view === 'menu') {
+    return (
+      <main style={{
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'center',
+        height: '100vh',
+        background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
+        margin: 0,
+        padding: 0,
+        color: '#fff',
+        fontFamily: 'Arial, sans-serif',
+      }}>
+        <div style={{
+          background: 'rgba(26, 26, 46, 0.95)',
+          padding: '50px 60px',
+          borderRadius: '20px',
+          textAlign: 'center',
+          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
+          border: '2px solid rgba(100, 100, 150, 0.3)',
+          maxWidth: '400px',
+          width: '100%',
+        }}>
+          <div style={{
+            width: '80px',
+            height: '80px',
+            margin: '0 auto 20px',
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            borderRadius: '20px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 10px 30px rgba(102, 126, 234, 0.3)',
+          }}>
+            <div style={{
+              width: '40px',
+              height: '40px',
+              background: '#fff',
+              borderRadius: '8px',
+              transform: 'rotate(45deg)',
+            }}></div>
+          </div>
+          <h1 style={{
+            marginBottom: '10px',
+            fontSize: '32px',
+            fontWeight: 'bold',
+            background: 'linear-gradient(90deg, #667eea, #764ba2)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+          }}>
+            RogueWeb
+          </h1>
+          <p style={{
+            marginBottom: '30px',
+            fontSize: '14px',
+            color: '#a0a0c0',
+            textTransform: 'uppercase',
+            letterSpacing: '2px',
+          }}>
+            Ecos de la Red
+          </p>
+
+          <div style={{ marginBottom: '25px' }}>
+            <label style={{
+              display: 'block',
+              marginBottom: '8px',
+              fontSize: '14px',
+              color: '#b0b0d0',
+              textAlign: 'left',
+            }}>
+              Tu Nombre
+            </label>
+            <input
+              type="text"
+              placeholder="Ingresa tu nombre"
+              value={playerName}
+              onChange={(e) => {
+                setPlayerName(e.target.value);
+                setError('');
+              }}
+              style={{
+                width: '100%',
+                padding: '14px 16px',
+                borderRadius: '10px',
+                border: '2px solid rgba(100, 100, 150, 0.3)',
+                background: 'rgba(20, 20, 40, 0.8)',
+                color: '#fff',
+                fontSize: '16px',
+                outline: 'none',
+                transition: 'all 0.3s ease',
+                boxSizing: 'border-box',
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = '#667eea';
+                e.target.style.boxShadow = '0 0 15px rgba(102, 126, 234, 0.3)';
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = 'rgba(100, 100, 150, 0.3)';
+                e.target.style.boxShadow = 'none';
+              }}
+            />
+          </div>
+
+          <div style={{ marginBottom: '30px' }}>
+            <label style={{
+              display: 'block',
+              marginBottom: '8px',
+              fontSize: '14px',
+              color: '#b0b0d0',
+              textAlign: 'left',
+            }}>
+              Código de Sala <span style={{ fontSize: '12px', color: '#707090' }}>(opcional)</span>
+            </label>
+            <input
+              type="text"
+              placeholder="ABC123"
+              value={lobbyCode}
+              onChange={(e) => {
+                setLobbyCode(e.target.value.toUpperCase());
+                setError('');
+              }}
+              style={{
+                width: '100%',
+                padding: '14px 16px',
+                borderRadius: '10px',
+                border: '2px solid rgba(100, 100, 150, 0.3)',
+                background: 'rgba(20, 20, 40, 0.8)',
+                color: '#fff',
+                fontSize: '16px',
+                textTransform: 'uppercase',
+                outline: 'none',
+                transition: 'all 0.3s ease',
+                boxSizing: 'border-box',
+                letterSpacing: '2px',
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = '#764ba2';
+                e.target.style.boxShadow = '0 0 15px rgba(118, 75, 162, 0.3)';
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = 'rgba(100, 100, 150, 0.3)';
+                e.target.style.boxShadow = 'none';
+              }}
+            />
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <button
+              onClick={handleCreateLobby}
+              style={{
+                padding: '16px 24px',
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '12px',
+                cursor: 'pointer',
+                fontSize: '18px',
+                fontWeight: 'bold',
+                transition: 'all 0.3s ease',
+                boxShadow: '0 4px 15px rgba(102, 126, 234, 0.3)',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-2px)';
+                e.currentTarget.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.5)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.3)';
+              }}
+            >
+              Crear Nueva Sala
+            </button>
+            <button
+              onClick={handleJoinLobby}
+              style={{
+                padding: '16px 24px',
+                background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '12px',
+                cursor: 'pointer',
+                fontSize: '18px',
+                fontWeight: 'bold',
+                transition: 'all 0.3s ease',
+                boxShadow: '0 4px 15px rgba(240, 147, 251, 0.3)',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-2px)';
+                e.currentTarget.style.boxShadow = '0 6px 20px rgba(240, 147, 251, 0.5)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 4px 15px rgba(240, 147, 251, 0.3)';
+              }}
+            >
+              Unirse a Sala
+            </button>
+          </div>
+
+          {error && (
+            <div style={{
+              marginTop: '20px',
+              padding: '12px 16px',
+              background: 'rgba(255, 68, 68, 0.2)',
+              border: '1px solid #ff4444',
+              borderRadius: '8px',
+              color: '#ff6666',
+              fontSize: '14px',
+            }}>
+              {error}
+            </div>
+          )}
+
+          <div style={{
+            marginTop: '25px',
+            fontSize: '12px',
+            color: '#606080',
+          }}>
+            {socket?.connected ? (
+              <span style={{ color: '#667eea' }}>● Conectado al servidor</span>
+            ) : (
+              <span style={{ color: '#ff4444' }}>● Desconectado del servidor</span>
+            )}
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  if (view === 'lobby' && lobby) {
+    return (
+      <main style={{
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'center',
+        height: '100vh',
+        background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
+        margin: 0,
+        padding: 0,
+        color: '#fff',
+        fontFamily: 'Arial, sans-serif',
+      }}>
+        <div style={{
+          background: 'rgba(26, 26, 46, 0.95)',
+          padding: '50px 60px',
+          borderRadius: '20px',
+          textAlign: 'center',
+          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
+          border: '2px solid rgba(100, 100, 150, 0.3)',
+          maxWidth: '450px',
+          width: '100%',
+        }}>
+          <div style={{
+            width: '70px',
+            height: '70px',
+            margin: '0 auto 15px',
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            borderRadius: '15px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 10px 30px rgba(102, 126, 234, 0.3)',
+          }}>
+            <div style={{
+              width: '30px',
+              height: '30px',
+              background: '#fff',
+              borderRadius: '6px',
+            }}></div>
+          </div>
+          <h1 style={{
+            marginBottom: '10px',
+            fontSize: '28px',
+            fontWeight: 'bold',
+            background: 'linear-gradient(90deg, #667eea, #764ba2)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+          }}>
+            Sala: {lobby.id}
+          </h1>
+          <p style={{
+            marginBottom: '30px',
+            fontSize: '14px',
+            color: '#a0a0c0',
+          }}>
+            Comparte este código con tus amigos
+          </p>
+
+          <div style={{ marginBottom: '30px' }}>
+            <h2 style={{
+              marginBottom: '15px',
+              fontSize: '18px',
+              color: '#b0b0d0',
+            }}>
+              Jugadores ({lobby.players.length}/3)
+            </h2>
+            <ul style={{ listStyle: 'none', padding: 0 }}>
+              {lobby.players.map((player) => (
+                <li key={player.id} style={{
+                  marginBottom: '12px',
+                  padding: '15px',
+                  background: 'rgba(42, 42, 74, 0.8)',
+                  borderRadius: '10px',
+                  border: '1px solid rgba(100, 100, 150, 0.2)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}>
+                  <span style={{ fontSize: '16px' }}>
+                    {player.name}
+                    {player.id === lobby.hostId && (
+                      <span style={{
+                        marginLeft: '8px',
+                        fontSize: '12px',
+                        background: 'linear-gradient(135deg, #ffd700, #ffaa00)',
+                        color: '#0a0a1a',
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                        fontWeight: 'bold',
+                      }}>
+                        ANFITRIÓN
+                      </span>
+                    )}
+                  </span>
+                  <span style={{
+                    fontSize: '14px',
+                    color: player.isReady ? '#667eea' : '#666',
+                    fontWeight: 'bold',
+                  }}>
+                    {player.isReady ? 'LISTO' : 'ESPERANDO'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <button
+              onClick={handlePlayerReady}
+              style={{
+                padding: '14px 24px',
+                background: lobby.players.find(p => p.id === socket?.id)?.isReady
+                  ? 'linear-gradient(135deg, #ff6b6b 0%, #ee5a5a 100%)'
+                  : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '12px',
+                cursor: 'pointer',
+                fontSize: '16px',
+                fontWeight: 'bold',
+                transition: 'all 0.3s ease',
+                boxShadow: '0 4px 15px rgba(102, 126, 234, 0.3)',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-2px)';
+                e.currentTarget.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.5)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.3)';
+              }}
+            >
+              {lobby.players.find(p => p.id === socket?.id)?.isReady ? 'Cancelar' : 'Estoy Listo'}
+            </button>
+            {lobby.hostId === socket?.id && (
+              <button
+                onClick={handleStartGame}
+                disabled={!lobby.players.every(p => p.isReady)}
+                style={{
+                  padding: '14px 24px',
+                  background: lobby.players.every(p => p.isReady)
+                    ? 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)'
+                    : 'linear-gradient(135deg, #666 0%, #444 100%)',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '12px',
+                  cursor: lobby.players.every(p => p.isReady) ? 'pointer' : 'not-allowed',
+                  fontSize: '16px',
+                  fontWeight: 'bold',
+                  transition: 'all 0.3s ease',
+                  boxShadow: '0 4px 15px rgba(240, 147, 251, 0.3)',
+                  opacity: lobby.players.every(p => p.isReady) ? 1 : 0.5,
+                }}
+                onMouseEnter={(e) => {
+                  if (lobby.players.every(p => p.isReady)) {
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                    e.currentTarget.style.boxShadow = '0 6px 20px rgba(240, 147, 251, 0.5)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = '0 4px 15px rgba(240, 147, 251, 0.3)';
+                }}
+              >
+                Iniciar Partida
+              </button>
+            )}
+          </div>
+
+          {error && (
+            <div style={{
+              marginTop: '20px',
+              padding: '12px 16px',
+              background: 'rgba(255, 68, 68, 0.2)',
+              border: '1px solid #ff4444',
+              borderRadius: '8px',
+              color: '#ff6666',
+              fontSize: '14px',
+            }}>
+              {error}
+            </div>
+          )}
+
+          <button
+            onClick={() => setView('menu')}
+            style={{
+              marginTop: '20px',
+              padding: '10px 20px',
+              background: 'transparent',
+              color: '#8080a0',
+              border: '1px solid rgba(128, 128, 160, 0.3)',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              transition: 'all 0.3s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = '#fff';
+              e.currentTarget.style.borderColor = '#fff';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = '#8080a0';
+              e.currentTarget.style.borderColor = 'rgba(128, 128, 160, 0.3)';
+            }}
+          >
+            Volver al menú
+          </button>
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <main style={{
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'center',
+      alignItems: 'center',
+      height: '100vh',
+      background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
+      margin: 0,
+      padding: 0,
+      fontFamily: 'Arial, sans-serif',
+    }}>
+      <div style={{
+        background: 'rgba(26, 26, 46, 0.95)',
+        padding: '15px 40px',
+        borderRadius: '15px',
+        marginBottom: '20px',
+        display: 'flex',
+        gap: '40px',
+        color: '#fff',
+        fontSize: '16px',
+        border: '2px solid rgba(100, 100, 150, 0.3)',
+        boxShadow: '0 10px 30px rgba(0, 0, 0, 0.3)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{
+            width: '16px',
+            height: '16px',
+            background: '#ff6b6b',
+            borderRadius: '50%',
+          }}></div>
+          <span><strong>Vida:</strong> {lobby?.gameState?.players[socket?.id ?? '']?.hp || 100} / {lobby?.gameState?.players[socket?.id ?? '']?.maxHp || 100}</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{
+            width: '16px',
+            height: '16px',
+            background: '#ffd700',
+            borderRadius: '50%',
+          }}></div>
+          <span><strong>Oro:</strong> {goldCollected}</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{
+            width: '16px',
+            height: '16px',
+            background: '#667eea',
+            borderRadius: '4px',
+          }}></div>
+          <span><strong>Piso:</strong> {currentFloor}</span>
+        </div>
+        <div style={{ fontSize: '14px', color: '#8080a0' }}>
+          WASD / Flechas
+        </div>
+      </div>
+      <canvas
+        ref={canvasRef}
+        width={MAP_WIDTH * TILE_SIZE}
+        height={MAP_HEIGHT * TILE_SIZE}
+        style={{
+          border: '3px solid rgba(100, 100, 150, 0.3)',
+          borderRadius: '10px',
+          background: '#0f0f1a',
+          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
+        }}
+      />
+      {isGameOver && (
+        <div style={{
+          position: 'fixed',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          background: 'rgba(26, 26, 46, 0.98)',
+          padding: '50px 60px',
+          borderRadius: '20px',
+          textAlign: 'center',
+          color: '#fff',
+          border: '2px solid rgba(100, 100, 150, 0.3)',
+          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.7)',
+          zIndex: 1000,
+        }}>
+          <div style={{
+            width: '80px',
+            height: '80px',
+            margin: '0 auto 20px',
+            background: gameStatus === 'VICTORY'
+              ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+              : 'linear-gradient(135deg, #ff6b6b 0%, #ee5a5a 100%)',
+            borderRadius: '20px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+            <div style={{
+              width: '40px',
+              height: '40px',
+              background: '#fff',
+              borderRadius: '8px',
+            }}></div>
+          </div>
+          <h2 style={{
+            color: gameStatus === 'VICTORY' ? '#667eea' : '#ff6b6b',
+            marginBottom: '20px',
+            fontSize: '36px',
+            fontWeight: 'bold',
+          }}>
+            {gameStatus === 'VICTORY' ? 'VICTORIA' : 'GAME OVER'}
+          </h2>
+          <div style={{
+            marginBottom: '30px',
+            fontSize: '18px',
+            color: '#b0b0d0',
+            lineHeight: '1.8',
+          }}>
+            <div>Piso alcanzado: <strong>{currentFloor}</strong></div>
+            <div>Oro recolectado: <strong>{goldCollected}</strong></div>
+          </div>
+          <button
+            onClick={() => setView('menu')}
+            style={{
+              padding: '16px 32px',
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '12px',
+              cursor: 'pointer',
+              fontSize: '18px',
+              fontWeight: 'bold',
+              transition: 'all 0.3s ease',
+              boxShadow: '0 4px 15px rgba(102, 126, 234, 0.3)',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-2px)';
+              e.currentTarget.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.5)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)';
+              e.currentTarget.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.3)';
+            }}
+          >
+            Volver al Menú
+          </button>
+        </div>
+      )}
+      {isMobile && (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(3, 60px)',
+          gridTemplateRows: 'repeat(3, 60px)',
+          gap: '5px',
+          marginTop: '20px',
+        }}>
+          <div />
+          <button
+            onTouchStart={() => handleTouchMove('up')}
+            style={{
+              width: '60px',
+              height: '60px',
+              fontSize: '24px',
+              background: '#4a4a6a',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: 'pointer',
+            }}
+          >
+            ↑
+          </button>
+          <div />
+          <button
+            onTouchStart={() => handleTouchMove('left')}
+            style={{
+              width: '60px',
+              height: '60px',
+              fontSize: '24px',
+              background: '#4a4a6a',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: 'pointer',
+            }}
+          >
+            ←
+          </button>
+          <div />
+          <button
+            onTouchStart={() => handleTouchMove('right')}
+            style={{
+              width: '60px',
+              height: '60px',
+              fontSize: '24px',
+              background: '#4a4a6a',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: 'pointer',
+            }}
+          >
+            →
+          </button>
+          <div />
+          <button
+            onTouchStart={() => handleTouchMove('down')}
+            style={{
+              width: '60px',
+              height: '60px',
+              fontSize: '24px',
+              background: '#4a4a6a',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: 'pointer',
+            }}
+          >
+            ↓
+          </button>
+          <div />
+        </div>
+      )}
+    </main>
+  );
+}
