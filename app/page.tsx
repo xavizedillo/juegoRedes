@@ -177,7 +177,7 @@ export default function Home() {
 
   const handleCreateLobby = () => {
     if (!playerName.trim()) {
-      setError('Please enter your name');
+      setError('Por favor ingresa tu nombre');
       return;
     }
     socket?.emit('create_lobby', { playerName });
@@ -185,11 +185,11 @@ export default function Home() {
 
   const handleJoinLobby = () => {
     if (!playerName.trim()) {
-      setError('Please enter your name');
+      setError('Por favor ingresa tu nombre');
       return;
     }
     if (!lobbyCode.trim()) {
-      setError('Please enter a lobby code');
+      setError('Por favor ingresa el código de sala');
       return;
     }
     socket?.emit('join_lobby', { lobbyId: lobbyCode, playerName });
@@ -244,70 +244,81 @@ export default function Home() {
         justifyContent: 'center',
         alignItems: 'center',
         height: '100vh',
-        background: '#1a1a2e',
+        background: 'url("/dungeon-bg.png")',
+        backgroundSize: 'cover',
+        imageRendering: 'pixelated',
         margin: 0,
         padding: 0,
         color: '#fff',
       }}>
-        <h1 style={{ marginBottom: '30px' }}>RogueWeb: Echoes of the Grid</h1>
-        <input
-          type="text"
-          placeholder="Your Name"
-          value={playerName}
-          onChange={(e) => setPlayerName(e.target.value)}
-          style={{
-            padding: '10px',
-            marginBottom: '20px',
-            borderRadius: '5px',
-            border: 'none',
-            fontSize: '16px',
-          }}
-        />
-        <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
-          <button
-            onClick={handleCreateLobby}
+        <div style={{
+          background: 'rgba(26, 26, 46, 0.9)',
+          padding: '40px',
+          borderRadius: '10px',
+          textAlign: 'center',
+        }}>
+          <h1 style={{ marginBottom: '30px' }}>RogueWeb: Ecos de la Red</h1>
+          <input
+            type="text"
+            placeholder="Tu Nombre"
+            value={playerName}
+            onChange={(e) => setPlayerName(e.target.value)}
             style={{
-              padding: '10px 20px',
-              background: '#4a4a6a',
-              color: '#fff',
-              border: 'none',
+              padding: '10px',
+              marginBottom: '20px',
               borderRadius: '5px',
-              cursor: 'pointer',
+              border: 'none',
               fontSize: '16px',
+              width: '250px',
             }}
-          >
-            Create Lobby
-          </button>
-          <button
-            onClick={handleJoinLobby}
+          />
+          <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', justifyContent: 'center' }}>
+            <button
+              onClick={handleCreateLobby}
+              style={{
+                padding: '10px 20px',
+                background: '#4a4a6a',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '5px',
+                cursor: 'pointer',
+                fontSize: '16px',
+              }}
+            >
+              Crear Sala
+            </button>
+            <button
+              onClick={handleJoinLobby}
+              style={{
+                padding: '10px 20px',
+                background: '#4a4a6a',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '5px',
+                cursor: 'pointer',
+                fontSize: '16px',
+              }}
+            >
+              Unirse a Sala
+            </button>
+          </div>
+          <input
+            type="text"
+            placeholder="Código de Sala"
+            value={lobbyCode}
+            onChange={(e) => setLobbyCode(e.target.value.toUpperCase())}
             style={{
-              padding: '10px 20px',
-              background: '#4a4a6a',
-              color: '#fff',
-              border: 'none',
+              padding: '10px',
+              marginBottom: '20px',
               borderRadius: '5px',
-              cursor: 'pointer',
+              border: 'none',
               fontSize: '16px',
+              textTransform: 'uppercase',
+              width: '250px',
             }}
-          >
-            Join Lobby
-          </button>
+          />
+          {error && <p style={{ color: '#ff4444' }}>{error}</p>}
         </div>
-        <input
-          type="text"
-          placeholder="Lobby Code"
-          value={lobbyCode}
-          onChange={(e) => setLobbyCode(e.target.value.toUpperCase())}
-          style={{
-            padding: '10px',
-            marginBottom: '20px',
-            borderRadius: '5px',
-            border: 'none',
-            fontSize: '16px',
-            textTransform: 'uppercase',
-          }}
-        />
-        {error && <p style={{ color: '#ff4444' }}>{error}</p>}
       </main>
     );
   }
@@ -320,54 +331,63 @@ export default function Home() {
         justifyContent: 'center',
         alignItems: 'center',
         height: '100vh',
-        background: '#1a1a2e',
+        background: 'url("/dungeon-bg.png")',
+        backgroundSize: 'cover',
+        imageRendering: 'pixelated',
         margin: 0,
         padding: 0,
         color: '#fff',
       }}>
-        <h1 style={{ marginBottom: '20px' }}>Lobby: {lobby.id}</h1>
-        <div style={{ marginBottom: '30px' }}>
-          <h2>Players ({lobby.players.length}/3)</h2>
-          <ul style={{ listStyle: 'none', padding: 0 }}>
-            {lobby.players.map((player) => (
-              <li key={player.id} style={{ marginBottom: '10px', padding: '10px', background: '#2a2a4a', borderRadius: '5px' }}>
-                {player.name} {player.isReady ? '✓' : '○'} {player.id === lobby.hostId ? '(Host)' : ''}
-              </li>
-            ))}
-          </ul>
-        </div>
-        <button
-          onClick={handlePlayerReady}
-          style={{
-            padding: '10px 20px',
-            background: '#4a4a6a',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '5px',
-            cursor: 'pointer',
-            fontSize: '16px',
-            marginBottom: '10px',
-          }}
-        >
-          Toggle Ready
-        </button>
-        {lobby.hostId === socket?.id && (
+        <div style={{
+          background: 'rgba(26, 26, 46, 0.9)',
+          padding: '40px',
+          borderRadius: '10px',
+          textAlign: 'center',
+        }}>
+          <h1 style={{ marginBottom: '20px' }}>Sala: {lobby.id}</h1>
+          <div style={{ marginBottom: '30px' }}>
+            <h2>Jugadores ({lobby.players.length}/3)</h2>
+            <ul style={{ listStyle: 'none', padding: 0 }}>
+              {lobby.players.map((player) => (
+                <li key={player.id} style={{ marginBottom: '10px', padding: '10px', background: '#2a2a4a', borderRadius: '5px' }}>
+                  {player.name} {player.isReady ? '✓' : '○'} {player.id === lobby.hostId ? '(Anfitrión)' : ''}
+                </li>
+              ))}
+            </ul>
+          </div>
           <button
-            onClick={handleStartGame}
+            onClick={handlePlayerReady}
             style={{
               padding: '10px 20px',
-              background: '#00ff88',
-              color: '#000',
+              background: '#4a4a6a',
+              color: '#fff',
               border: 'none',
               borderRadius: '5px',
               cursor: 'pointer',
               fontSize: '16px',
+              marginBottom: '10px',
             }}
           >
-            Start Game
+            Cambiar Estado
           </button>
-        )}
-        {error && <p style={{ color: '#ff4444', marginTop: '20px' }}>{error}</p>}
+          {lobby.hostId === socket?.id && (
+            <button
+              onClick={handleStartGame}
+              style={{
+                padding: '10px 20px',
+                background: '#00ff88',
+                color: '#000',
+                border: 'none',
+                borderRadius: '5px',
+                cursor: 'pointer',
+                fontSize: '16px',
+              }}
+            >
+              Iniciar Partida
+            </button>
+          )}
+          {error && <p style={{ color: '#ff4444', marginTop: '20px' }}>{error}</p>}
+        </div>
       </main>
     );
   }

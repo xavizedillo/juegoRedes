@@ -51,12 +51,12 @@ io.on('connection', (socket) => {
     const lobby = lobbies.get(data.lobbyId);
 
     if (!lobby) {
-      socket.emit('error', { message: 'Lobby not found' });
+      socket.emit('error', { message: 'Sala no encontrada' });
       return;
     }
 
     if (lobby.players.length >= MAX_PLAYERS_PER_LOBBY) {
-      socket.emit('error', { message: 'Lobby is full' });
+      socket.emit('error', { message: 'La sala está llena' });
       return;
     }
 
@@ -91,18 +91,18 @@ io.on('connection', (socket) => {
     const lobby = lobbies.get(data.lobbyId);
 
     if (!lobby) {
-      socket.emit('error', { message: 'Lobby not found' });
+      socket.emit('error', { message: 'Sala no encontrada' });
       return;
     }
 
     if (socket.id !== lobby.hostId) {
-      socket.emit('error', { message: 'Only host can start the game' });
+      socket.emit('error', { message: 'Solo el anfitrión puede iniciar la partida' });
       return;
     }
 
     const allReady = lobby.players.every((p) => p.isReady);
     if (!allReady) {
-      socket.emit('error', { message: 'Not all players are ready' });
+      socket.emit('error', { message: 'No todos los jugadores están listos' });
       return;
     }
 
@@ -140,19 +140,19 @@ io.on('connection', (socket) => {
   socket.on('player_move', (data: { lobbyId: string; targetX: number; targetY: number }) => {
     const lobby = lobbies.get(data.lobbyId);
     if (!lobby || !lobby.gameState) {
-      socket.emit('error', { message: 'Game not started' });
+      socket.emit('error', { message: 'Partida no iniciada' });
       return;
     }
 
     const player = lobby.gameState.players[socket.id];
     if (!player) {
-      socket.emit('error', { message: 'Player not found' });
+      socket.emit('error', { message: 'Jugador no encontrado' });
       return;
     }
 
     const map = activeMaps.get(data.lobbyId);
     if (!map) {
-      socket.emit('error', { message: 'Map not found' });
+      socket.emit('error', { message: 'Mapa no encontrado' });
       return;
     }
 
@@ -160,26 +160,26 @@ io.on('connection', (socket) => {
     if (isValid) {
       io.to(data.lobbyId).emit('game_state_update', { gameState: lobby.gameState });
     } else {
-      socket.emit('error', { message: 'Invalid movement' });
+      socket.emit('error', { message: 'Movimiento inválido' });
     }
   });
 
   socket.on('combat_action', (data: { lobbyId: string; action: 'attack' | 'defend' }) => {
     const lobby = lobbies.get(data.lobbyId);
     if (!lobby || !lobby.gameState) {
-      socket.emit('error', { message: 'Game not started' });
+      socket.emit('error', { message: 'Partida no iniciada' });
       return;
     }
 
     const player = lobby.gameState.players[socket.id];
     if (!player) {
-      socket.emit('error', { message: 'Player not found' });
+      socket.emit('error', { message: 'Jugador no encontrado' });
       return;
     }
 
     const boss = activeBosses.get(data.lobbyId);
     if (!boss) {
-      socket.emit('error', { message: 'Boss not found' });
+      socket.emit('error', { message: 'Jefe no encontrado' });
       return;
     }
 
