@@ -3,7 +3,19 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { generateMap, TILE } from '../shared/mapGenerator';
 import type { Lobby, LobbyPlayer } from '../shared/types';
-import { validateMovement, calculateBossStats, processCombatTurn } from './gameLogic';
+import { isValidCharacter } from '../shared/battleData';
+import {
+  validateMovement,
+  createGameState,
+  startCombat,
+  performCombatAction,
+  buyAttack,
+  setShopReady,
+  allShopReady,
+  advanceToNextFloor,
+  removePlayerFromGame,
+  type CombatAction,
+} from './gameLogic';
 
 const app = express();
 const httpServer = createServer(app);
@@ -16,10 +28,26 @@ const io = new Server(httpServer, {
 const lobbies = new Map<string, Lobby>();
 const MAX_PLAYERS_PER_LOBBY = 3;
 const activeMaps = new Map<string, number[][]>();
-const activeBosses = new Map<string, any>();
 
 function generateLobbyId(): string {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
+}
+
+function emitGameState(lobby: Lobby): void {
+  const gameState = lobby.gameState;
+  if (!gameState) return;
+  io.to(lobby.id).emit('game_state_update', { gameState });
+  if (gameState.phase === 'VICTORY' || gameState.phase === 'GAME_OVER') {
+    io.to(lobby.id).emit('game_completed', { status: gameState.phase, gameState });
+  }
+}
+
+function startNextFloor(lobby: Lobby): void {
+  if (!lobby.gameState) return;
+  advanceToNextFloor(lobby.gameState);
+  const map = generateMap(20, 20);
+  activeMaps.set(lobby.id, map);
+  io.to(lobby.id).emit('floor_started', { map, gameState: lobby.gameState });
 }
 
 io.on('connection', (socket) => {
@@ -55,6 +83,11 @@ io.on('connection', (socket) => {
       return;
     }
 
+    if (lobby.gameState) {
+      socket.emit('error', { message: 'La partida ya comenzó' });
+      return;
+    }
+
     if (lobby.players.length >= MAX_PLAYERS_PER_LOBBY) {
       socket.emit('error', { message: 'La sala está llena' });
       return;
@@ -87,6 +120,27 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('select_character', (data: { lobbyId: string; characterId: string }) => {
+    const lobby = lobbies.get(data.lobbyId);
+    if (!lobby) {
+      socket.emit('error', { message: 'Sala no encontrada' });
+      return;
+    }
+    if (lobby.gameState) {
+      socket.emit('error', { message: 'La partida ya comenzó' });
+      return;
+    }
+    if (!isValidCharacter(data.characterId)) {
+      socket.emit('error', { message: 'Personaje no válido' });
+      return;
+    }
+    const player = lobby.players.find((p) => p.id === socket.id);
+    if (player) {
+      player.characterId = data.characterId;
+      io.to(data.lobbyId).emit('lobby_updated', lobby);
+    }
+  });
+
   socket.on('start_game', (data: { lobbyId: string }) => {
     const lobby = lobbies.get(data.lobbyId);
 
@@ -108,33 +162,9 @@ io.on('connection', (socket) => {
 
     const map = generateMap(20, 20);
     activeMaps.set(data.lobbyId, map);
-    const playersState: Record<string, any> = {};
+    lobby.gameState = createGameState(lobby.players);
 
-    for (const player of lobby.players) {
-      playersState[player.id] = {
-        id: player.id,
-        x: 1,
-        y: 1,
-        hp: 100,
-        maxHp: 100,
-        level: 1,
-        exp: 0,
-        gold: 0,
-        inventory: [],
-      };
-    }
-
-    lobby.gameState = {
-      floor: 1,
-      players: playersState,
-      currentTurnPlayerId: lobby.players[0]!.id,
-      phase: 'EXPLORE',
-    };
-
-    const boss = calculateBossStats(lobby.players.length);
-    activeBosses.set(data.lobbyId, boss);
-
-    io.to(data.lobbyId).emit('game_started', { lobby, map, boss });
+    io.to(data.lobbyId).emit('game_started', { lobby, map });
   });
 
   socket.on('player_move', (data: { lobbyId: string; targetX: number; targetY: number }) => {
@@ -144,6 +174,10 @@ io.on('connection', (socket) => {
     if (!lobby || !lobby.gameState) {
       console.log('Error: Partida no iniciada');
       socket.emit('error', { message: 'Partida no iniciada' });
+      return;
+    }
+
+    if (lobby.gameState.phase !== 'EXPLORE') {
       return;
     }
 
@@ -173,10 +207,7 @@ io.on('connection', (socket) => {
 
       const tile = map[data.targetY]?.[data.targetX];
       if (tile === TILE.EXIT) {
-        io.to(data.lobbyId).emit('game_completed', {
-          winner: socket.id,
-          gameState: lobby.gameState,
-        });
+        startCombat(lobby.gameState);
       }
 
       io.to(data.lobbyId).emit('game_state_update', { gameState: lobby.gameState });
@@ -186,29 +217,53 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('combat_action', (data: { lobbyId: string; action: 'attack' | 'defend' }) => {
+  socket.on('combat_action', (data: { lobbyId: string; action: 'attack' | 'defend'; attackId?: string }) => {
     const lobby = lobbies.get(data.lobbyId);
     if (!lobby || !lobby.gameState) {
       socket.emit('error', { message: 'Partida no iniciada' });
       return;
     }
 
-    const player = lobby.gameState.players[socket.id];
-    if (!player) {
-      socket.emit('error', { message: 'Jugador no encontrado' });
+    const action: CombatAction = data.action === 'attack'
+      ? { type: 'attack', attackId: data.attackId ?? '' }
+      : { type: 'defend' };
+    const result = performCombatAction(lobby.gameState, socket.id, action);
+    if (!result.ok) {
+      socket.emit('error', { message: result.error });
       return;
     }
 
-    const boss = activeBosses.get(data.lobbyId);
-    if (!boss) {
-      socket.emit('error', { message: 'Jefe no encontrado' });
+    emitGameState(lobby);
+  });
+
+  socket.on('buy_attack', (data: { lobbyId: string; attackId: string }) => {
+    const lobby = lobbies.get(data.lobbyId);
+    if (!lobby || !lobby.gameState) {
+      socket.emit('error', { message: 'Partida no iniciada' });
       return;
     }
 
-    processCombatTurn(player, boss, data.action);
-    activeBosses.set(data.lobbyId, boss);
+    const result = buyAttack(lobby.gameState, socket.id, data.attackId);
+    if (!result.ok) {
+      socket.emit('error', { message: result.error });
+      return;
+    }
 
-    io.to(data.lobbyId).emit('game_state_update', { gameState: lobby.gameState, boss });
+    emitGameState(lobby);
+  });
+
+  socket.on('shop_ready', (data: { lobbyId: string }) => {
+    const lobby = lobbies.get(data.lobbyId);
+    if (!lobby || !lobby.gameState) {
+      socket.emit('error', { message: 'Partida no iniciada' });
+      return;
+    }
+
+    if (setShopReady(lobby.gameState, socket.id)) {
+      startNextFloor(lobby);
+    } else {
+      emitGameState(lobby);
+    }
   });
 
   socket.on('disconnect', () => {
@@ -221,11 +276,20 @@ io.on('connection', (socket) => {
 
         if (lobby.players.length === 0) {
           lobbies.delete(lobbyId);
+          activeMaps.delete(lobbyId);
         } else {
           if (socket.id === lobby.hostId) {
             lobby.hostId = lobby.players[0]!.id;
           }
           io.to(lobbyId).emit('lobby_updated', lobby);
+          if (lobby.gameState) {
+            removePlayerFromGame(lobby.gameState, socket.id);
+            if (lobby.gameState.phase === 'SHOP' && allShopReady(lobby.gameState)) {
+              startNextFloor(lobby);
+            } else {
+              emitGameState(lobby);
+            }
+          }
         }
         break;
       }

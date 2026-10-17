@@ -3,7 +3,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { TILE, type MapData } from '../shared/mapGenerator';
-import type { Lobby, Boss } from '../shared/types';
+import type { Lobby, GameState } from '../shared/types';
+import { TOTAL_LEVELS, getCharacter } from '../shared/battleData';
+import CharacterSelect from './components/CharacterSelect';
+import BattleScreen from './components/BattleScreen';
+import ShopScreen from './components/ShopScreen';
 
 const TILE_SIZE = 30;
 const MAP_WIDTH = 20;
@@ -28,13 +32,17 @@ export default function Home() {
   const [playerName, setPlayerName] = useState('');
   const [lobbyCode, setLobbyCode] = useState('');
   const [error, setError] = useState('');
-  const [boss, setBoss] = useState<Boss | null>(null);
   const animationRef = useRef<number>(0);
-  const [gameStartTime, setGameStartTime] = useState<number>(0);
+  const gameStartTimeRef = useRef<number>(0);
+  const lobbyRef = useRef<Lobby | null>(null);
   const [goldCollected, setGoldCollected] = useState(0);
   const [currentFloor, setCurrentFloor] = useState(1);
   const [isGameOver, setIsGameOver] = useState(false);
   const [gameStatus, setGameStatus] = useState<'VICTORY' | 'GAME_OVER' | 'PLAYING'>('PLAYING');
+
+  useEffect(() => {
+    lobbyRef.current = lobby;
+  }, [lobby]);
 
   useEffect(() => {
     const newSocket = io('http://localhost:3001', {
@@ -65,52 +73,52 @@ export default function Home() {
       setLobby(updatedLobby);
     });
 
-    newSocket.on('game_started', (data: { lobby: Lobby; map: MapData; boss: Boss }) => {
+    const applyGameState = (gameState: GameState) => {
+      setLobby((prev) => (prev ? { ...prev, gameState } : prev));
+      const playerData = gameState.players[newSocket.id ?? ''];
+      if (playerData) {
+        setPlayer({ x: playerData.x, y: playerData.y });
+        setGoldCollected(playerData.gold || 0);
+      }
+      setCurrentFloor(gameState.floor || 1);
+    };
+
+    newSocket.on('game_started', (data: { lobby: Lobby; map: MapData }) => {
       setLobby(data.lobby);
       setMap(data.map);
-      setBoss(data.boss);
       setView('game');
-      setGameStartTime(Date.now());
+      gameStartTimeRef.current = Date.now();
       setGoldCollected(0);
       setCurrentFloor(1);
       setIsGameOver(false);
       setGameStatus('PLAYING');
     });
 
-    newSocket.on('game_state_update', (data: { gameState: any; boss?: Boss }) => {
-      if (lobby) {
-        setLobby({ ...lobby, gameState: data.gameState });
-      }
-      if (data.boss) {
-        setBoss(data.boss);
-      }
-      if (data.gameState?.players[socket?.id ?? '']) {
-        const playerData = data.gameState.players[socket?.id ?? ''];
-        setPlayer({
-          x: playerData.x,
-          y: playerData.y,
-        });
-        setGoldCollected(playerData.gold || 0);
-        setCurrentFloor(data.gameState.floor || 1);
-      }
+    newSocket.on('game_state_update', (data: { gameState: GameState }) => {
+      applyGameState(data.gameState);
     });
 
-    newSocket.on('game_completed', async (data: { winner: string; gameState: any }) => {
-      setIsGameOver(true);
-      const playtimeMinutes = Math.floor((Date.now() - gameStartTime) / 60000);
-      const status = data.winner === socket?.id ? 'VICTORY' : 'GAME_OVER';
+    newSocket.on('floor_started', (data: { map: MapData; gameState: GameState }) => {
+      setMap(data.map);
+      applyGameState(data.gameState);
+    });
 
-      setGameStatus(status);
+    newSocket.on('game_completed', async (data: { status: 'VICTORY' | 'GAME_OVER'; gameState: GameState }) => {
+      setIsGameOver(true);
+      setGameStatus(data.status);
+      const myId = newSocket.id ?? 'unknown';
+      const me = data.gameState.players[myId];
+      const playtimeMinutes = Math.floor((Date.now() - gameStartTimeRef.current) / 60000);
 
       const telemetryData = {
-        playerId: socket?.id || 'unknown',
-        partySize: lobby?.players.length || 1,
+        playerId: myId,
+        partySize: Object.keys(data.gameState.players).length || 1,
         floorReached: data.gameState.floor || 1,
-        bossesDefeated: 0,
-        goldCollected: goldCollected,
-        status: status,
+        bossesDefeated: data.gameState.bossesDefeated,
+        goldCollected: me?.gold ?? 0,
+        status: data.status,
         playtimeMinutes: playtimeMinutes,
-        inventory: data.gameState.players[socket?.id ?? '']?.inventory || {},
+        inventory: { characterId: me?.characterId ?? null, attacks: me?.attacks ?? [] },
       };
 
       try {
@@ -148,7 +156,7 @@ export default function Home() {
     if (!canvas || view !== 'game') return;
 
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    if (!ctx || map.length === 0) return;
 
     const render = () => {
       ctx.fillStyle = '#0f0f1a';
@@ -164,8 +172,8 @@ export default function Home() {
       }
 
       if (lobby?.gameState?.players) {
-        Object.values(lobby.gameState.players).forEach((p: any) => {
-          ctx.fillStyle = p.id === socket?.id ? COLORS.PLAYER : '#ff8800';
+        Object.values(lobby.gameState.players).forEach((p) => {
+          ctx.fillStyle = getCharacter(p.characterId).color;
           ctx.beginPath();
           ctx.arc(
             p.x * TILE_SIZE + TILE_SIZE / 2,
@@ -175,6 +183,12 @@ export default function Home() {
             Math.PI * 2
           );
           ctx.fill();
+          if (p.id === socket?.id) {
+            ctx.strokeStyle = COLORS.PLAYER;
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            ctx.lineWidth = 1;
+          }
         });
       }
 
@@ -188,7 +202,7 @@ export default function Home() {
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [map, player, view]);
+  }, [map, player, view, lobby]);
 
   useEffect(() => {
     if (view !== 'game') return;
@@ -222,7 +236,8 @@ export default function Home() {
           return;
       }
 
-      const currentPlayer = lobby?.gameState?.players[socket?.id ?? ''];
+      if (lobby?.gameState?.phase !== 'EXPLORE') return;
+      const currentPlayer = lobby.gameState.players[socket?.id ?? ''];
       console.log('Tecla presionada:', e.key, { dx, dy });
       console.log('Posición actual del jugador (cliente):', currentPlayer);
 
@@ -285,6 +300,36 @@ export default function Home() {
     }
   };
 
+  const handleSelectCharacter = (characterId: string) => {
+    if (lobby) {
+      socket?.emit('select_character', { lobbyId: lobby.id, characterId });
+    }
+  };
+
+  const handleAttack = (attackId: string) => {
+    if (lobby) {
+      socket?.emit('combat_action', { lobbyId: lobby.id, action: 'attack', attackId });
+    }
+  };
+
+  const handleDefend = () => {
+    if (lobby) {
+      socket?.emit('combat_action', { lobbyId: lobby.id, action: 'defend' });
+    }
+  };
+
+  const handleBuyAttack = (attackId: string) => {
+    if (lobby) {
+      socket?.emit('buy_attack', { lobbyId: lobby.id, attackId });
+    }
+  };
+
+  const handleShopReady = () => {
+    if (lobby) {
+      socket?.emit('shop_ready', { lobbyId: lobby.id });
+    }
+  };
+
   const handleTouchMove = (direction: string) => {
     let dx = 0;
     let dy = 0;
@@ -306,7 +351,8 @@ export default function Home() {
         return;
     }
 
-    const currentPlayer = lobby?.gameState?.players[socket?.id ?? ''];
+    if (lobby?.gameState?.phase !== 'EXPLORE') return;
+    const currentPlayer = lobby.gameState.players[socket?.id ?? ''];
     if (!currentPlayer) return;
 
     const newX = currentPlayer.x + dx;
@@ -554,21 +600,23 @@ export default function Home() {
         flexDirection: 'column',
         justifyContent: 'center',
         alignItems: 'center',
-        height: '100vh',
+        minHeight: '100vh',
+        boxSizing: 'border-box',
         background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
         margin: 0,
-        padding: 0,
+        padding: '20px 0',
         color: '#fff',
         fontFamily: 'Arial, sans-serif',
       }}>
         <div style={{
           background: 'rgba(26, 26, 46, 0.95)',
-          padding: '50px 60px',
+          padding: '40px 50px',
           borderRadius: '20px',
           textAlign: 'center',
           boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
           border: '2px solid rgba(100, 100, 150, 0.3)',
-          maxWidth: '450px',
+          maxWidth: '720px',
+          boxSizing: 'border-box',
           width: '100%',
         }}>
           <div style={{
@@ -607,6 +655,21 @@ export default function Home() {
             Comparte este código con tus amigos
           </p>
 
+          <div style={{ marginBottom: '24px' }}>
+            <h2 style={{
+              marginBottom: '15px',
+              fontSize: '18px',
+              color: '#b0b0d0',
+            }}>
+              Elige tu personaje
+            </h2>
+            <CharacterSelect
+              selectedId={lobby.players.find(p => p.id === socket?.id)?.characterId}
+              onSelect={handleSelectCharacter}
+              disabled={!!lobby.players.find(p => p.id === socket?.id)?.isReady}
+            />
+          </div>
+
           <div style={{ marginBottom: '30px' }}>
             <h2 style={{
               marginBottom: '15px',
@@ -642,6 +705,13 @@ export default function Home() {
                         ANFITRIÓN
                       </span>
                     )}
+                    <span style={{
+                      marginLeft: '8px',
+                      fontSize: '13px',
+                      color: player.characterId ? getCharacter(player.characterId).color : '#666',
+                    }}>
+                      {player.characterId ? getCharacter(player.characterId).name : 'sin personaje'}
+                    </span>
                   </span>
                   <span style={{
                     fontSize: '14px',
@@ -658,7 +728,10 @@ export default function Home() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <button
               onClick={handlePlayerReady}
+              disabled={!lobby.players.find(p => p.id === socket?.id)?.characterId}
+              title={lobby.players.find(p => p.id === socket?.id)?.characterId ? undefined : 'Primero elige un personaje'}
               style={{
+                opacity: lobby.players.find(p => p.id === socket?.id)?.characterId ? 1 : 0.5,
                 padding: '14px 24px',
                 background: lobby.players.find(p => p.id === socket?.id)?.isReady
                   ? 'linear-gradient(135deg, #ff6b6b 0%, #ee5a5a 100%)'
@@ -761,16 +834,23 @@ export default function Home() {
     );
   }
 
+  const myId = socket?.id ?? '';
+  const gameState = lobby?.gameState ?? null;
+  const me = gameState?.players[myId];
+  const showBattle = !!gameState?.boss && (gameState.phase === 'COMBAT' || gameState.phase === 'VICTORY' || gameState.phase === 'GAME_OVER');
+  const showShop = gameState?.phase === 'SHOP';
+
   return (
     <main style={{
       display: 'flex',
       flexDirection: 'column',
       justifyContent: 'center',
       alignItems: 'center',
-      height: '100vh',
+      minHeight: '100vh',
+      boxSizing: 'border-box',
       background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
       margin: 0,
-      padding: 0,
+      padding: '20px 0',
       fontFamily: 'Arial, sans-serif',
     }}>
       <div style={{
@@ -792,7 +872,7 @@ export default function Home() {
             background: '#ff6b6b',
             borderRadius: '50%',
           }}></div>
-          <span><strong>Vida:</strong> {lobby?.gameState?.players[socket?.id ?? '']?.hp || 100} / {lobby?.gameState?.players[socket?.id ?? '']?.maxHp || 100}</span>
+          <span><strong>Vida:</strong> {me?.hp ?? 0} / {me?.maxHp ?? 0}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <div style={{
@@ -810,23 +890,34 @@ export default function Home() {
             background: '#667eea',
             borderRadius: '4px',
           }}></div>
-          <span><strong>Piso:</strong> {currentFloor}</span>
+          <span><strong>Nivel:</strong> {currentFloor} / {TOTAL_LEVELS}</span>
         </div>
+        {me && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: getCharacter(me.characterId).color }}>
+            <strong>{getCharacter(me.characterId).name}</strong> Nv {me.level}
+          </div>
+        )}
         <div style={{ fontSize: '14px', color: '#8080a0' }}>
-          WASD / Flechas
+          {showBattle ? 'Combate por turnos' : showShop ? 'Tienda' : 'WASD / Flechas · llega a la salida roja'}
         </div>
       </div>
-      <canvas
-        ref={canvasRef}
-        width={MAP_WIDTH * TILE_SIZE}
-        height={MAP_HEIGHT * TILE_SIZE}
-        style={{
-          border: '3px solid rgba(100, 100, 150, 0.3)',
-          borderRadius: '10px',
-          background: '#0f0f1a',
-          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
-        }}
-      />
+      {gameState && showBattle ? (
+        <BattleScreen gameState={gameState} myId={myId} onAttack={handleAttack} onDefend={handleDefend} />
+      ) : gameState && showShop ? (
+        <ShopScreen gameState={gameState} myId={myId} onBuy={handleBuyAttack} onReady={handleShopReady} />
+      ) : (
+        <canvas
+          ref={canvasRef}
+          width={MAP_WIDTH * TILE_SIZE}
+          height={MAP_HEIGHT * TILE_SIZE}
+          style={{
+            border: '3px solid rgba(100, 100, 150, 0.3)',
+            borderRadius: '10px',
+            background: '#0f0f1a',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
+          }}
+        />
+      )}
       {isGameOver && (
         <div style={{
           position: 'fixed',
@@ -875,7 +966,8 @@ export default function Home() {
             color: '#b0b0d0',
             lineHeight: '1.8',
           }}>
-            <div>Piso alcanzado: <strong>{currentFloor}</strong></div>
+            <div>Nivel alcanzado: <strong>{currentFloor} / {TOTAL_LEVELS}</strong></div>
+            <div>Jefes derrotados: <strong>{gameState?.bossesDefeated ?? 0}</strong></div>
             <div>Oro recolectado: <strong>{goldCollected}</strong></div>
           </div>
           <button
@@ -905,7 +997,7 @@ export default function Home() {
           </button>
         </div>
       )}
-      {isMobile && (
+      {isMobile && !showBattle && !showShop && (
         <div style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(3, 60px)',
