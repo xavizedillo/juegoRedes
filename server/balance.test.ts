@@ -93,8 +93,8 @@ function winRate(characterIds: string[], strategy: Strategy, runs = 200): number
 
 describe('Balance de los 10 niveles', () => {
   for (const character of CHARACTERS) {
-    it(`${character.name} en solitario puede ganar los ${TOTAL_LEVELS} niveles comprando ataques`, () => {
-      expect(winRate([character.id], 'smart')).toBeGreaterThanOrEqual(0.9);
+    it(`${character.name} en solitario puede ganar los ${TOTAL_LEVELS} niveles comprando ataques (difícil)`, () => {
+      expect(winRate([character.id], 'smart')).toBeGreaterThanOrEqual(0.25);
     });
 
     it(`${character.name} sin comprar ataques no gana fácilmente`, () => {

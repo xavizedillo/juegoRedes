@@ -1,6 +1,6 @@
 import express from 'express';
 import { createServer } from 'http';
-import { Server } from 'socket.io';
+import { Server, type Socket } from 'socket.io';
 import { generateMap, TILE } from '../shared/mapGenerator';
 import type { Lobby, LobbyPlayer } from '../shared/types';
 import { isValidCharacter } from '../shared/battleData';
@@ -51,11 +51,42 @@ function startNextFloor(lobby: Lobby): void {
   io.to(lobby.id).emit('game_state_update', { gameState: lobby.gameState });
 }
 
+function leaveLobby(socket: Socket): void {
+  for (const [lobbyId, lobby] of lobbies.entries()) {
+    const playerIndex = lobby.players.findIndex((p) => p.id === socket.id);
+    if (playerIndex === -1) continue;
+    lobby.players.splice(playerIndex, 1);
+    socket.leave(lobbyId);
+
+    if (lobby.players.length === 0) {
+      lobbies.delete(lobbyId);
+      activeMaps.delete(lobbyId);
+      continue;
+    }
+    if (socket.id === lobby.hostId) {
+      lobby.hostId = lobby.players[0]!.id;
+    }
+    if (lobby.gameState) {
+      removePlayerFromGame(lobby.gameState, socket.id);
+    }
+    io.to(lobbyId).emit('lobby_updated', lobby);
+    if (lobby.gameState) {
+      if (lobby.gameState.phase === 'SHOP' && allShopReady(lobby.gameState)) {
+        startNextFloor(lobby);
+      } else {
+        emitGameState(lobby);
+      }
+    }
+  }
+}
+
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
 
   socket.on('create_lobby', (data: { playerName: string; characterId?: string }) => {
-    const lobbyId = generateLobbyId();
+    leaveLobby(socket);
+    let lobbyId = generateLobbyId();
+    while (lobbies.has(lobbyId)) lobbyId = generateLobbyId();
     const player: LobbyPlayer = {
       id: socket.id,
       name: data.playerName,
@@ -78,10 +109,16 @@ io.on('connection', (socket) => {
   });
 
   socket.on('join_lobby', (data: { lobbyId: string; playerName: string; characterId?: string }) => {
-    const lobby = lobbies.get(data.lobbyId);
+    const lobbyId = String(data.lobbyId ?? '').trim().toUpperCase();
+    const lobby = lobbies.get(lobbyId);
 
     if (!lobby) {
       socket.emit('error', { message: 'Sala no encontrada' });
+      return;
+    }
+
+    if (lobby.players.some((p) => p.id === socket.id)) {
+      socket.emit('lobby_updated', lobby);
       return;
     }
 
@@ -102,10 +139,15 @@ io.on('connection', (socket) => {
       ...(data.characterId && isValidCharacter(data.characterId) ? { characterId: data.characterId } : {}),
     };
 
+    leaveLobby(socket);
     lobby.players.push(player);
-    socket.join(data.lobbyId);
+    socket.join(lobbyId);
 
-    io.to(data.lobbyId).emit('lobby_updated', lobby);
+    io.to(lobbyId).emit('lobby_updated', lobby);
+  });
+
+  socket.on('leave_lobby', () => {
+    leaveLobby(socket);
   });
 
   socket.on('player_ready', (data: { lobbyId: string }) => {
@@ -152,6 +194,11 @@ io.on('connection', (socket) => {
       return;
     }
 
+    if (lobby.gameState) {
+      socket.emit('error', { message: 'La partida ya comenzó' });
+      return;
+    }
+
     if (socket.id !== lobby.hostId) {
       socket.emit('error', { message: 'Solo el anfitrión puede iniciar la partida' });
       return;
@@ -171,8 +218,6 @@ io.on('connection', (socket) => {
   });
 
   socket.on('player_move', (data: { lobbyId: string; targetX: number; targetY: number }) => {
-    console.log('Movimiento recibido:', { socketId: socket.id, ...data });
-
     const lobby = lobbies.get(data.lobbyId);
     if (!lobby || !lobby.gameState) {
       console.log('Error: Partida no iniciada');
@@ -191,9 +236,6 @@ io.on('connection', (socket) => {
       return;
     }
 
-    console.log('Posición actual del jugador:', { x: player.x, y: player.y });
-    console.log('Posición objetivo:', { x: data.targetX, y: data.targetY });
-
     const map = activeMaps.get(data.lobbyId);
     if (!map) {
       console.log('Error: Mapa no encontrado');
@@ -202,7 +244,6 @@ io.on('connection', (socket) => {
     }
 
     const isValid = validateMovement(player, data.targetX, data.targetY, map);
-    console.log('Validación de movimiento:', isValid);
 
     if (isValid) {
       player.x = data.targetX;
@@ -213,10 +254,7 @@ io.on('connection', (socket) => {
         startCombat(lobby.gameState);
       }
 
-      io.to(data.lobbyId).emit('game_state_update', { gameState: lobby.gameState });
-    } else {
-      console.log('Error: Movimiento inválido');
-      socket.emit('error', { message: 'Movimiento inválido' });
+      emitGameState(lobby);
     }
   });
 
@@ -271,36 +309,11 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     console.log('Client disconnected:', socket.id);
-
-    for (const [lobbyId, lobby] of lobbies.entries()) {
-      const playerIndex = lobby.players.findIndex((p) => p.id === socket.id);
-      if (playerIndex !== -1) {
-        lobby.players.splice(playerIndex, 1);
-
-        if (lobby.players.length === 0) {
-          lobbies.delete(lobbyId);
-          activeMaps.delete(lobbyId);
-        } else {
-          if (socket.id === lobby.hostId) {
-            lobby.hostId = lobby.players[0]!.id;
-          }
-          io.to(lobbyId).emit('lobby_updated', lobby);
-          if (lobby.gameState) {
-            removePlayerFromGame(lobby.gameState, socket.id);
-            if (lobby.gameState.phase === 'SHOP' && allShopReady(lobby.gameState)) {
-              startNextFloor(lobby);
-            } else {
-              emitGameState(lobby);
-            }
-          }
-        }
-        break;
-      }
-    }
+    leaveLobby(socket);
   });
 });
 
 const PORT = process.env['PORT'] || 3001;
-httpServer.listen(PORT, () => {
+httpServer.listen(Number(PORT), '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
 });

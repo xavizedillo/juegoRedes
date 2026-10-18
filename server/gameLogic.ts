@@ -2,6 +2,7 @@ import type { MapData } from '../shared/mapGenerator';
 import { isWalkable } from '../shared/mapGenerator';
 import type { BossState, CombatLogEntry, GameState, PlayerState } from '../shared/types';
 import {
+  ENEMY_DAMAGE_MULTIPLIER,
   TOTAL_LEVELS,
   bossGoldReward,
   getAttack,
@@ -27,6 +28,11 @@ const BOSS_ATTACK_PER_EXTRA_PLAYER = 0.15;
 const DAMAGE_GROWTH_PER_LEVEL = 0.1;
 const HEAL_GROWTH_PER_LEVEL = 0.08;
 const MAX_LOG_ENTRIES = 14;
+const SPAWN_POINTS = [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 1, y: 2 }];
+
+function spawnPoint(index: number): { x: number; y: number } {
+  return SPAWN_POINTS[index % SPAWN_POINTS.length]!;
+}
 
 export function validateMovement(player: PlayerState, targetX: number, targetY: number, map: MapData): boolean {
   const mapHeight = map.length;
@@ -53,14 +59,15 @@ export function validateMovement(player: PlayerState, targetX: number, targetY: 
   return true;
 }
 
-export function createPlayerState(id: string, name: string, characterId: string | null | undefined): PlayerState {
+export function createPlayerState(id: string, name: string, characterId: string | null | undefined, index = 0): PlayerState {
   const character = getCharacter(characterId);
+  const spawn = spawnPoint(index);
   return {
     id,
     name,
     characterId: character.id,
-    x: 1,
-    y: 1,
+    x: spawn.x,
+    y: spawn.y,
     hp: character.maxHp,
     maxHp: character.maxHp,
     energy: character.maxEnergy,
@@ -77,9 +84,9 @@ export function createPlayerState(id: string, name: string, characterId: string 
 
 export function createGameState(players: Array<{ id: string; name: string; characterId?: string | undefined }>): GameState {
   const playerStates: Record<string, PlayerState> = {};
-  for (const p of players) {
-    playerStates[p.id] = createPlayerState(p.id, p.name, p.characterId);
-  }
+  players.forEach((p, index) => {
+    playerStates[p.id] = createPlayerState(p.id, p.name, p.characterId, index);
+  });
   return {
     floor: 1,
     players: playerStates,
@@ -236,7 +243,7 @@ export function bossTurn(state: GameState, rng: Rng = Math.random): void {
     const hitTexts: string[] = [];
     for (const target of targets) {
       const character = getCharacter(target.characterId);
-      let damage = boss.attack * move.multiplier * variance(rng) * character.defense;
+      let damage = boss.attack * ENEMY_DAMAGE_MULTIPLIER * move.multiplier * variance(rng) * character.defense;
       if (target.defending) damage *= DEFEND_DAMAGE_FACTOR;
       damage *= 1 - target.shield;
       const finalDamage = Math.max(1, Math.round(damage));
@@ -372,10 +379,11 @@ export function advanceToNextFloor(state: GameState): void {
   state.shopReady = [];
   state.turn = 0;
   state.currentTurnPlayerId = null;
-  for (const player of Object.values(state.players)) {
-    player.x = 1;
-    player.y = 1;
-  }
+  Object.values(state.players).forEach((player, index) => {
+    const spawn = spawnPoint(index);
+    player.x = spawn.x;
+    player.y = spawn.y;
+  });
 }
 
 export function removePlayerFromGame(state: GameState, playerId: string, rng: Rng = Math.random): void {
