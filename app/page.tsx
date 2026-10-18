@@ -10,6 +10,7 @@ import BattleScreen from './components/BattleScreen';
 import ShopScreen from './components/ShopScreen';
 import { MusicToggle, useMusic } from './components/useMusic';
 import { musicTrack } from '../shared/musicData';
+import { analyzeMazeImage } from '../shared/mazeGenerator';
 
 const TILE_SIZE = 30;
 const MAP_WIDTH = 20;
@@ -45,6 +46,8 @@ export default function Home() {
   const [gameStatus, setGameStatus] = useState<'VICTORY' | 'GAME_OVER' | 'PLAYING'>('PLAYING');
   const [rouletteOpen, setRouletteOpen] = useState(false);
   const [rouletteBet, setRouletteBet] = useState(0);
+  const [rouletteResult, setRouletteResult] = useState<{ won: boolean; amount: number } | null>(null);
+  const [nearbyChest, setNearbyChest] = useState<string | null>(null);
   const music = useMusic(
     musicTrack(view, gameStatus !== 'PLAYING' ? gameStatus : lobby?.gameState?.phase, lobby?.gameState?.floor ?? 1)
   );
@@ -60,6 +63,7 @@ export default function Home() {
     if (lobby) {
       setRouletteOpen(true);
       setRouletteBet(0);
+      setRouletteResult(null);
     }
   }, [lobby]);
 
@@ -104,6 +108,15 @@ export default function Home() {
       if (playerData) {
         setPlayer({ x: playerData.x, y: playerData.y });
         setGoldCollected(playerData.gold || 0);
+        
+        // Check for nearby chest
+        if (gameState.mazeItems) {
+          const nearby = gameState.mazeItems.find(
+            (item) => !item.collected && item.type === 'chest' &&
+            Math.abs(item.x - playerData.x) + Math.abs(item.y - playerData.y) === 1
+          );
+          setNearbyChest(nearby?.id || null);
+        }
       }
       setCurrentFloor(gameState.floor || 1);
     };
@@ -123,8 +136,25 @@ export default function Home() {
       applyGameState(data.gameState);
     });
 
-    newSocket.on('floor_started', (data: { map: MapData; gameState: GameState }) => {
-      setMap(data.map);
+    newSocket.on('floor_started', async (data: { map: MapData; gameState: GameState }) => {
+      // If entering MAZE phase, analyze the maze image to generate collision map
+      if (data.gameState.phase === 'MAZE' && data.gameState.mazeLevel) {
+        const mazeImagePath = `/vistaaerea/aer${data.gameState.mazeLevel}.jpg`;
+        
+        try {
+          const analyzedMap = await analyzeMazeImage(mazeImagePath);
+          setMap(analyzedMap);
+          // Send analyzed map to server for collision validation
+          if (lobby) {
+            newSocket.emit('maze_map_analyzed', { lobbyId: lobby.id, map: analyzedMap });
+          }
+        } catch (error) {
+          console.error('Failed to analyze maze image, using fallback map:', error);
+          setMap(data.map);
+        }
+      } else {
+        setMap(data.map);
+      }
       applyGameState(data.gameState);
     });
 
@@ -168,6 +198,7 @@ export default function Home() {
     newSocket.on('roulette_result', (data: { gameState: GameState; won: boolean; amount: number }) => {
       applyGameState(data.gameState);
       setGoldCollected(data.gameState.players[newSocket.id ?? '']?.gold ?? 0);
+      setRouletteResult({ won: data.won, amount: data.amount });
       console.log(`Roulette result: ${data.won ? 'WIN' : 'LOSE'}, amount: ${data.amount}`);
     });
 
@@ -208,16 +239,39 @@ export default function Home() {
     const rouletteImg = new Image();
     rouletteImg.src = '/items/ruleta.png';
 
+    // Preload maze background image if in MAZE phase
+    let mazeBgImg: HTMLImageElement | null = null;
+    if (lobby?.gameState?.phase === 'MAZE' && lobby.gameState.mazeLevel) {
+      mazeBgImg = new Image();
+      mazeBgImg.src = `/vistaaerea/aer${lobby.gameState.mazeLevel}.jpg`;
+    }
+
+    // Check for nearby chest
+    const currentPlayer = lobby?.gameState?.players[socket?.id ?? ''];
+    if (currentPlayer && lobby?.gameState?.mazeItems) {
+      const nearby = lobby.gameState.mazeItems.find(
+        (item) => !item.collected && item.type === 'chest' &&
+        Math.abs(item.x - currentPlayer.x) + Math.abs(item.y - currentPlayer.y) === 1
+      );
+      setNearbyChest(nearby?.id || null);
+    }
+
     const render = () => {
       ctx.fillStyle = '#0f0f1a';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      for (let y = 0; y < MAP_HEIGHT; y++) {
-        for (let x = 0; x < MAP_WIDTH; x++) {
-          ctx.fillStyle = COLORS[map[y]![x]! as keyof typeof COLORS];
-          ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-          ctx.strokeStyle = '#1a1a3a';
-          ctx.strokeRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+      // Draw maze background if in MAZE phase
+      if (mazeBgImg && mazeBgImg.complete) {
+        ctx.drawImage(mazeBgImg, 0, 0, canvas.width, canvas.height);
+      } else {
+        // Draw tile-based map
+        for (let y = 0; y < MAP_HEIGHT; y++) {
+          for (let x = 0; x < MAP_WIDTH; x++) {
+            ctx.fillStyle = COLORS[map[y]![x]! as keyof typeof COLORS];
+            ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+            ctx.strokeStyle = '#1a1a3a';
+            ctx.strokeRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+          }
         }
       }
 
@@ -262,13 +316,36 @@ export default function Home() {
           if (!item.collected) {
             const itemImg = item.type === 'chest' ? chestImg : rouletteImg;
             if (itemImg && itemImg.complete) {
-              ctx.drawImage(
-                itemImg,
-                item.x * TILE_SIZE,
-                item.y * TILE_SIZE,
-                TILE_SIZE,
-                TILE_SIZE
-              );
+              // Add glow effect for chests
+              if (item.type === 'chest') {
+                ctx.save();
+                ctx.shadowColor = '#ffd700';
+                ctx.shadowBlur = 15;
+                ctx.drawImage(
+                  itemImg,
+                  item.x * TILE_SIZE,
+                  item.y * TILE_SIZE,
+                  TILE_SIZE,
+                  TILE_SIZE
+                );
+                ctx.restore();
+                
+                // Add indicator if nearby
+                if (nearbyChest === item.id) {
+                  ctx.fillStyle = '#ffd700';
+                  ctx.font = 'bold 12px Arial';
+                  ctx.textAlign = 'center';
+                  ctx.fillText('J', item.x * TILE_SIZE + TILE_SIZE / 2, item.y * TILE_SIZE - 5);
+                }
+              } else {
+                ctx.drawImage(
+                  itemImg,
+                  item.x * TILE_SIZE,
+                  item.y * TILE_SIZE,
+                  TILE_SIZE,
+                  TILE_SIZE
+                );
+              }
             }
           }
         });
@@ -314,6 +391,20 @@ export default function Home() {
         case 'D':
           dx = 1;
           break;
+        case 'j':
+        case 'J':
+          // Collect nearby chest
+          if (nearbyChest) {
+            handleCollectItem(nearbyChest);
+          }
+          return;
+        case 'k':
+        case 'K':
+          // Cancel/Go back - close roulette if open
+          if (rouletteOpen) {
+            handleRouletteCancel();
+          }
+          return;
         default:
           return;
       }
@@ -378,7 +469,7 @@ export default function Home() {
       document.removeEventListener('keydown', handleKeyDown);
       canvasRef.current?.removeEventListener('click', handleCanvasClick);
     };
-  }, [map, view, lobby, socket, handleCollectItem, handleOpenRoulette]);
+  }, [map, view, lobby, socket, handleCollectItem, handleOpenRoulette, rouletteOpen, handleRouletteCancel]);
 
   const handleCreateLobby = () => {
     if (!playerName.trim()) {
@@ -1010,7 +1101,7 @@ export default function Home() {
           </div>
         )}
         <div style={{ fontSize: '14px', color: '#b08a5a' }}>
-          {showBattle ? 'Combate por turnos' : showShop ? 'Tienda' : gameState?.phase === 'MAZE' ? 'Laberinto · click en items cercanos' : 'WASD / Flechas · llega a la salida roja'}
+          {showBattle ? 'Combate por turnos' : showShop ? 'Tienda' : gameState?.phase === 'MAZE' ? `Laberinto · WASD mover · ${nearbyChest ? 'J recolectar cofre' : ''} · K cancelar` : 'WASD / Flechas · llega a la salida roja'}
         </div>
       </div>
       {gameState && showBattle ? (
@@ -1053,98 +1144,136 @@ export default function Home() {
           }}>
             Ruleta de la Suerte
           </h2>
-          <div style={{
-            marginBottom: '20px',
-            fontSize: '16px',
-            color: '#deb887',
-          }}>
-            Tu oro: <strong>{goldCollected}</strong>
-          </div>
-          <div style={{
-            marginBottom: '25px',
-            fontSize: '14px',
-            color: '#b08a5a',
-          }}>
-            Apuesta actual: <strong>{rouletteBet}</strong>
-          </div>
-          <div style={{
-            marginBottom: '25px',
-            fontSize: '12px',
-            color: '#888',
-          }}>
-            {rouletteBet > 0 ? `Probabilidad de ganar: ${Math.max(10, 80 - rouletteBet)}%` : 'Selecciona una apuesta'}
-          </div>
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(3, 1fr)',
-            gap: '10px',
-            marginBottom: '25px',
-          }}>
-            {[10, 25, 50, 100, 200, 500].map((amount) => (
+          
+          {rouletteResult ? (
+            <div>
+              <div style={{
+                marginBottom: '20px',
+                fontSize: '24px',
+                fontWeight: 'bold',
+                color: rouletteResult.won ? '#00ff88' : '#ff4444',
+              }}>
+                {rouletteResult.won ? '¡GANASTE!' : 'PERDISTE'}
+              </div>
+              <div style={{
+                marginBottom: '25px',
+                fontSize: '18px',
+                color: '#deb887',
+              }}>
+                {rouletteResult.won ? `+${rouletteResult.amount} oro` : `-${rouletteBet} oro`}
+              </div>
               <button
-                key={amount}
-                onClick={() => handleRouletteBet(amount)}
-                disabled={amount > goldCollected}
+                onClick={handleRouletteCancel}
                 style={{
-                  padding: '12px 16px',
-                  background: rouletteBet === amount
-                    ? 'linear-gradient(180deg, #c9a227 0%, #8b4513 100%)'
-                    : amount <= goldCollected
-                      ? 'rgba(60, 40, 20, 0.8)'
-                      : 'rgba(40, 30, 20, 0.4)',
-                  color: rouletteBet === amount || amount <= goldCollected ? '#fff' : '#666',
-                  border: '2px solid rgba(139, 69, 19, 0.3)',
-                  borderRadius: '8px',
-                  cursor: amount <= goldCollected ? 'pointer' : 'not-allowed',
-                  fontSize: '14px',
+                  padding: '14px 32px',
+                  background: 'linear-gradient(180deg, #c9a227 0%, #8b4513 100%)',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '12px',
+                  cursor: 'pointer',
+                  fontSize: '16px',
                   fontWeight: 'bold',
-                  opacity: amount <= goldCollected ? 1 : 0.5,
                 }}
               >
-                {amount}
+                OK
               </button>
-            ))}
-          </div>
-          <div style={{
-            display: 'flex',
-            gap: '12px',
-            justifyContent: 'center',
-          }}>
-            <button
-              onClick={handleRouletteConfirm}
-              disabled={rouletteBet === 0 || rouletteBet > goldCollected}
-              style={{
-                padding: '14px 32px',
-                background: rouletteBet > 0 && rouletteBet <= goldCollected
-                  ? 'linear-gradient(180deg, #c9a227 0%, #8b4513 100%)'
-                  : 'rgba(60, 40, 20, 0.6)',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '12px',
-                cursor: rouletteBet > 0 && rouletteBet <= goldCollected ? 'pointer' : 'not-allowed',
+            </div>
+          ) : (
+            <>
+              <div style={{
+                marginBottom: '20px',
                 fontSize: '16px',
-                fontWeight: 'bold',
-                opacity: rouletteBet > 0 && rouletteBet <= goldCollected ? 1 : 0.5,
-              }}
-            >
-              OK
-            </button>
-            <button
-              onClick={handleRouletteCancel}
-              style={{
-                padding: '14px 32px',
-                background: 'linear-gradient(180deg, #ff6b6b 0%, #ee5a5a 100%)',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '12px',
-                cursor: 'pointer',
-                fontSize: '16px',
-                fontWeight: 'bold',
-              }}
-            >
-              Cancelar
-            </button>
-          </div>
+                color: '#deb887',
+              }}>
+                Tu oro: <strong>{goldCollected}</strong>
+              </div>
+              <div style={{
+                marginBottom: '25px',
+                fontSize: '14px',
+                color: '#b08a5a',
+              }}>
+                Apuesta actual: <strong>{rouletteBet}</strong>
+              </div>
+              <div style={{
+                marginBottom: '25px',
+                fontSize: '12px',
+                color: '#888',
+              }}>
+                {rouletteBet > 0 ? `Probabilidad de ganar: ${Math.max(10, 80 - rouletteBet)}%` : 'Selecciona una apuesta'}
+              </div>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
+                gap: '10px',
+                marginBottom: '25px',
+              }}>
+                {[10, 25, 50, 100, 200, 500].map((amount) => (
+                  <button
+                    key={amount}
+                    onClick={() => handleRouletteBet(amount)}
+                    disabled={amount > goldCollected}
+                    style={{
+                      padding: '12px 16px',
+                      background: rouletteBet === amount
+                        ? 'linear-gradient(180deg, #c9a227 0%, #8b4513 100%)'
+                        : amount <= goldCollected
+                          ? 'rgba(60, 40, 20, 0.8)'
+                          : 'rgba(40, 30, 20, 0.4)',
+                      color: rouletteBet === amount || amount <= goldCollected ? '#fff' : '#666',
+                      border: '2px solid rgba(139, 69, 19, 0.3)',
+                      borderRadius: '8px',
+                      cursor: amount <= goldCollected ? 'pointer' : 'not-allowed',
+                      fontSize: '14px',
+                      fontWeight: 'bold',
+                      opacity: amount <= goldCollected ? 1 : 0.5,
+                    }}
+                  >
+                    {amount}
+                  </button>
+                ))}
+              </div>
+              <div style={{
+                display: 'flex',
+                gap: '12px',
+                justifyContent: 'center',
+              }}>
+                <button
+                  onClick={handleRouletteConfirm}
+                  disabled={rouletteBet === 0 || rouletteBet > goldCollected}
+                  style={{
+                    padding: '14px 32px',
+                    background: rouletteBet > 0 && rouletteBet <= goldCollected
+                      ? 'linear-gradient(180deg, #c9a227 0%, #8b4513 100%)'
+                      : 'rgba(60, 40, 20, 0.6)',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '12px',
+                    cursor: rouletteBet > 0 && rouletteBet <= goldCollected ? 'pointer' : 'not-allowed',
+                    fontSize: '16px',
+                    fontWeight: 'bold',
+                    opacity: rouletteBet > 0 && rouletteBet <= goldCollected ? 1 : 0.5,
+                  }}
+                >
+                  OK
+                </button>
+                <button
+                  onClick={handleRouletteCancel}
+                  style={{
+                    padding: '14px 32px',
+                    background: 'linear-gradient(180deg, #ff6b6b 0%, #ee5a5a 100%)',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '12px',
+                    cursor: 'pointer',
+                    fontSize: '16px',
+                    fontWeight: 'bold',
+                  }}
+                >
+                  Cancelar (K)
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
       {isGameOver && (

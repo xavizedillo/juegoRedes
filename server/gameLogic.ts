@@ -365,15 +365,7 @@ export function allShopReady(state: GameState): boolean {
 
 export function advanceToNextFloor(state: GameState): void {
   state.floor = Math.min(TOTAL_LEVELS, state.floor + 1);
-  
-  // After boss defeat, enter MAZE phase before next boss
-  if (state.bossesDefeated > 0 && state.bossesDefeated < TOTAL_LEVELS) {
-    state.phase = 'MAZE';
-    state.mazeLevel = state.bossesDefeated;
-    state.mazeItems = []; // Will be populated by server
-  } else {
-    state.phase = 'EXPLORE';
-  }
+  state.phase = 'EXPLORE';
   
   state.boss = null;
   state.combatLog = [];

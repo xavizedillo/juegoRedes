@@ -8,9 +8,13 @@ export interface MazeConfig {
 }
 
 export function getMazeImagePath(level: number): string {
-  // aer1.png, aer2.jpeg, aer3.jpeg, etc.
-  const extension = level === 1 ? 'png' : 'jpeg';
-  return `/vistaaerea/aer${level}.${extension}`;
+  // aer1.jpg, aer2.jpg, aer3.jpg, etc.
+  return `/vistaaerea/aer${level}.jpg`;
+}
+
+export function getMazeBackgroundPath(level: number): string {
+  // Return the maze image to be used as background
+  return `/vistaaerea/aer${level}.jpg`;
 }
 
 export function getCharacterAerialImagePath(characterId: string): string {
@@ -171,10 +175,15 @@ export async function analyzeMazeImage(imagePath: string): Promise<MapData> {
           const [r, g, b] = imageData.data;
           
           // Determine if this is a wall based on color
-          // Walls are typically darker colors
+          // Walls are typically darker colors - adjust threshold for new images
           const brightness = ((r ?? 0) + (g ?? 0) + (b ?? 0)) / 3;
           
-          if (brightness < 80) {
+          // Check if it's a dark gray/brown wall (walls in new images)
+          // Also check for very dark colors
+          const isDark = brightness < 100;
+          const isGrayWall = Math.abs((r ?? 0) - (g ?? 0)) < 30 && Math.abs((g ?? 0) - (b ?? 0)) < 30 && brightness < 150;
+          
+          if (isDark || isGrayWall) {
             map[y]![x] = TILE.WALL;
           } else {
             map[y]![x] = TILE.FLOOR;

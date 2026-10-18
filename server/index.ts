@@ -3,7 +3,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { generateMap, TILE } from '../shared/mapGenerator';
 import type { Lobby, LobbyPlayer } from '../shared/types';
-import { isValidCharacter } from '../shared/battleData';
+import { isValidCharacter, TOTAL_LEVELS } from '../shared/battleData';
 import {
   validateMovement,
   createGameState,
@@ -12,7 +12,6 @@ import {
   buyAttack,
   setShopReady,
   allShopReady,
-  advanceToNextFloor,
   removePlayerFromGame,
   startMazePhase,
   collectItem,
@@ -49,24 +48,37 @@ function emitGameState(lobby: Lobby): void {
 function startNextFloor(lobby: Lobby): void {
   if (!lobby.gameState) return;
   
-  advanceToNextFloor(lobby.gameState);
+  const currentFloor = lobby.gameState.floor;
+  const bossesDefeated = lobby.gameState.bossesDefeated;
   
-  // If entering MAZE phase, generate maze items
-  if (lobby.gameState.phase === 'MAZE') {
-    const mazeConfig = getMazeConfig(lobby.gameState.mazeLevel || 1);
-    const mazeItems = generateMazeItems(mazeConfig);
-    startMazePhase(lobby.gameState, mazeItems);
-    
-    // Generate maze map
-    const map = generateFallbackMaze(mazeConfig);
-    activeMaps.set(lobby.id, map);
-    io.to(lobby.id).emit('floor_started', { map, gameState: lobby.gameState });
-  } else {
-    // Normal EXPLORE phase
+  console.log('Starting next floor:', { currentFloor, bossesDefeated });
+  
+  // First floor: go directly to EXPLORE
+  if (bossesDefeated === 0) {
+    lobby.gameState.phase = 'EXPLORE';
     const map = generateMap(20, 20);
     activeMaps.set(lobby.id, map);
     io.to(lobby.id).emit('floor_started', { map, gameState: lobby.gameState });
+    return;
   }
+  
+  // After boss defeat: enter MAZE phase
+  if (bossesDefeated > 0 && bossesDefeated < TOTAL_LEVELS) {
+    lobby.gameState.phase = 'MAZE';
+    lobby.gameState.mazeLevel = bossesDefeated;
+    const mazeConfig = getMazeConfig(bossesDefeated);
+    const mazeItems = generateMazeItems(mazeConfig);
+    startMazePhase(lobby.gameState, mazeItems);
+    
+    // Generate fallback maze map (client will analyze image for collision)
+    const map = generateFallbackMaze(mazeConfig);
+    activeMaps.set(lobby.id, map);
+    io.to(lobby.id).emit('floor_started', { map, gameState: lobby.gameState });
+    return;
+  }
+  
+  // Victory or GAME_OVER
+  console.log('Game should be over or won');
 }
 
 io.on('connection', (socket) => {
@@ -230,7 +242,8 @@ io.on('connection', (socket) => {
       
       // In MAZE phase, check for exit to proceed to next boss
       if (lobby.gameState.phase === 'MAZE' && tile === TILE.EXIT) {
-        // Transition to EXPLORE phase for the next boss
+        // Increment floor and transition to EXPLORE phase for the next boss
+        lobby.gameState.floor = Math.min(TOTAL_LEVELS, lobby.gameState.floor + 1);
         lobby.gameState.phase = 'EXPLORE';
         lobby.gameState.mazeItems = [];
         const exploreMap = generateMap(20, 20);
@@ -330,6 +343,17 @@ io.on('connection', (socket) => {
     }
 
     io.to(data.lobbyId).emit('roulette_result', { gameState: lobby.gameState, won: result.won, amount: result.amount });
+  });
+
+  socket.on('maze_map_analyzed', (data: { lobbyId: string; map: number[][] }) => {
+    const lobby = lobbies.get(data.lobbyId);
+    if (!lobby || !lobby.gameState) {
+      return;
+    }
+
+    // Update the active map with the client-analyzed collision map
+    activeMaps.set(data.lobbyId, data.map);
+    console.log('Maze map updated for lobby:', data.lobbyId);
   });
 
   socket.on('disconnect', () => {
