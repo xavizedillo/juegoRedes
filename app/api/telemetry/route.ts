@@ -1,37 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
+const prisma = globalForPrisma.prisma ?? new PrismaClient();
+if (process.env['NODE_ENV'] !== 'production') globalForPrisma.prisma = prisma;
 
-export async function GET(request: NextRequest) {
+const MAX_LIMIT = 100;
+
+const telemetrySelect = {
+  id: true,
+  playerId: true,
+  floorReached: true,
+  bossesDefeated: true,
+  goldCollected: true,
+  status: true,
+  playtimeMinutes: true,
+  createdAt: true,
+} as const;
+
+export async function GET(req: NextRequest) {
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const page = parseInt(searchParams.get('page') || '1', 10);
-    const pageSize = 50;
+    const { searchParams } = new URL(req.url);
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10) || 1);
+    const limit = Math.min(MAX_LIMIT, Math.max(1, parseInt(searchParams.get('limit') || '10', 10) || 10));
 
-    const skip = (page - 1) * pageSize;
-
-    const [records, totalCount] = await Promise.all([
+    const [data, total] = await prisma.$transaction([
       prisma.matchTelemetry.findMany({
-        skip,
-        take: pageSize,
-        orderBy: {
-          createdAt: 'desc',
-        },
+        select: telemetrySelect,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
       }),
       prisma.matchTelemetry.count(),
     ]);
 
-    const totalPages = Math.ceil(totalCount / pageSize);
-
     return NextResponse.json({
-      data: records,
-      pagination: {
-        currentPage: page,
-        totalPages,
-        totalRecords: totalCount,
-        pageSize,
-      },
+      data,
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     });
   } catch (error) {
     console.error('Error fetching telemetry:', error);
