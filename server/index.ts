@@ -48,6 +48,7 @@ function startNextFloor(lobby: Lobby): void {
   const map = generateMap(20, 20);
   activeMaps.set(lobby.id, map);
   io.to(lobby.id).emit('floor_started', { map, gameState: lobby.gameState });
+  io.to(lobby.id).emit('game_state_update', { gameState: lobby.gameState });
 }
 
 io.on('connection', (socket) => {

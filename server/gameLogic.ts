@@ -273,6 +273,7 @@ function handleBossDefeated(state: GameState): void {
 
   state.currentTurnPlayerId = null;
   state.shopReady = [];
+  state.boss = null;
   state.phase = state.floor >= TOTAL_LEVELS ? 'VICTORY' : 'SHOP';
 }
 

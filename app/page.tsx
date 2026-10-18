@@ -73,17 +73,24 @@ export default function Home() {
 
     newSocket.on('lobby_created', (data: { lobbyId: string; lobby: Lobby }) => {
       console.log('🏰 Sala creada:', data);
+      lobbyRef.current = data.lobby;
       setLobby(data.lobby);
       setView('lobby');
     });
 
     newSocket.on('lobby_updated', (updatedLobby: Lobby) => {
       console.log('🔄 Sala actualizada:', updatedLobby);
+      lobbyRef.current = updatedLobby;
       setLobby(updatedLobby);
     });
 
     const applyGameState = (gameState: GameState) => {
-      setLobby((prev) => (prev ? { ...prev, gameState } : prev));
+      setLobby((prev) => {
+        if (!prev) return prev;
+        const next = { ...prev, gameState };
+        lobbyRef.current = next;
+        return next;
+      });
       const playerData = gameState.players[newSocket.id ?? ''];
       if (playerData) {
         setPlayer({ x: playerData.x, y: playerData.y });
@@ -93,6 +100,7 @@ export default function Home() {
     };
 
     newSocket.on('game_started', (data: { lobby: Lobby; map: MapData }) => {
+      lobbyRef.current = data.lobby;
       setLobby(data.lobby);
       setMap(data.map);
       setView('game');
@@ -245,24 +253,22 @@ export default function Home() {
           return;
       }
 
-      if (lobby?.gameState?.phase !== 'EXPLORE') return;
-      const currentPlayer = lobby.gameState.players[socket?.id ?? ''];
-      console.log('Tecla presionada:', e.key, { dx, dy });
-      console.log('Posición actual del jugador (cliente):', currentPlayer);
+      e.preventDefault();
 
-      if (!currentPlayer) {
-        console.log('Jugador no encontrado en gameState');
-        return;
-      }
+      const currentLobby = lobbyRef.current;
+      if (currentLobby?.gameState?.phase !== 'EXPLORE') return;
+
+      const currentPlayer = currentLobby.gameState.players[socket?.id ?? ''];
+      if (!currentPlayer) return;
 
       const newX = currentPlayer.x + dx;
       const newY = currentPlayer.y + dy;
 
-      console.log('Enviando movimiento:', { from: { x: currentPlayer.x, y: currentPlayer.y }, to: { x: newX, y: newY } });
-
-      if (lobby) {
-        socket?.emit('player_move', { lobbyId: lobby.id, targetX: newX, targetY: newY });
-      }
+      socket?.emit('player_move', {
+        lobbyId: currentLobby.id,
+        targetX: newX,
+        targetY: newY,
+      });
     };
 
     document.addEventListener('keydown', handleKeyDown);
@@ -270,7 +276,7 @@ export default function Home() {
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [map, view, lobby, socket]);
+  }, [view, socket]);
 
   const handleCreateLobby = () => {
     if (!playerName.trim()) {
@@ -360,16 +366,15 @@ export default function Home() {
         return;
     }
 
-    if (lobby?.gameState?.phase !== 'EXPLORE') return;
-    const currentPlayer = lobby.gameState.players[socket?.id ?? ''];
+    const currentLobby = lobbyRef.current;
+    if (currentLobby?.gameState?.phase !== 'EXPLORE') return;
+    const currentPlayer = currentLobby.gameState.players[socket?.id ?? ''];
     if (!currentPlayer) return;
 
     const newX = currentPlayer.x + dx;
     const newY = currentPlayer.y + dy;
 
-    if (lobby) {
-      socket?.emit('player_move', { lobbyId: lobby.id, targetX: newX, targetY: newY });
-    }
+    socket?.emit('player_move', { lobbyId: currentLobby.id, targetX: newX, targetY: newY });
   };
 
   if (view === 'menu') {
