@@ -9,12 +9,12 @@ export interface MazeConfig {
 
 export function getMazeImagePath(level: number): string {
   // aer1.jpg, aer2.jpg, aer3.jpg, etc.
-  return `/vistaaerea/aer${level}.jpg`;
+  return `/updateesce/aer${level}.jpg`;
 }
 
 export function getMazeBackgroundPath(level: number): string {
   // Return the maze image to be used as background
-  return `/vistaaerea/aer${level}.jpg`;
+  return `/updateesce/aer${level}.jpg`;
 }
 
 export function getCharacterAerialImagePath(characterId: string): string {

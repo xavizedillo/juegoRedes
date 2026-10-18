@@ -52,24 +52,15 @@ function startNextFloor(lobby: Lobby): void {
   const bossesDefeated = lobby.gameState.bossesDefeated;
   
   console.log('Starting next floor:', { currentFloor, bossesDefeated });
-  
-  // First floor: go directly to EXPLORE
-  if (bossesDefeated === 0) {
-    lobby.gameState.phase = 'EXPLORE';
-    const map = generateMap(20, 20);
-    activeMaps.set(lobby.id, map);
-    io.to(lobby.id).emit('floor_started', { map, gameState: lobby.gameState });
-    return;
-  }
-  
-  // After boss defeat: enter MAZE phase
-  if (bossesDefeated > 0 && bossesDefeated < TOTAL_LEVELS) {
+
+  // All floors (including first): enter MAZE phase
+  if (bossesDefeated < TOTAL_LEVELS) {
     lobby.gameState.phase = 'MAZE';
-    lobby.gameState.mazeLevel = bossesDefeated;
-    const mazeConfig = getMazeConfig(bossesDefeated);
+    lobby.gameState.mazeLevel = bossesDefeated + 1; // Level 1 starts with bossesDefeated=0
+    const mazeConfig = getMazeConfig(bossesDefeated + 1);
     const mazeItems = generateMazeItems(mazeConfig);
     startMazePhase(lobby.gameState, mazeItems);
-    
+
     // Generate fallback maze map (client will analyze image for collision)
     const map = generateFallbackMaze(mazeConfig);
     activeMaps.set(lobby.id, map);

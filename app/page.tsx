@@ -139,7 +139,7 @@ export default function Home() {
     newSocket.on('floor_started', async (data: { map: MapData; gameState: GameState }) => {
       // If entering MAZE phase, analyze the maze image to generate collision map
       if (data.gameState.phase === 'MAZE' && data.gameState.mazeLevel) {
-        const mazeImagePath = `/vistaaerea/aer${data.gameState.mazeLevel}.jpg`;
+        const mazeImagePath = `/updateesce/aer${data.gameState.mazeLevel}.jpg`;
         
         try {
           const analyzedMap = await analyzeMazeImage(mazeImagePath);
@@ -243,7 +243,7 @@ export default function Home() {
     let mazeBgImg: HTMLImageElement | null = null;
     if (lobby?.gameState?.phase === 'MAZE' && lobby.gameState.mazeLevel) {
       mazeBgImg = new Image();
-      mazeBgImg.src = `/vistaaerea/aer${lobby.gameState.mazeLevel}.jpg`;
+      mazeBgImg.src = `/updateesce/aer${lobby.gameState.mazeLevel}.jpg`;
     }
 
     // Check for nearby chest
@@ -545,14 +545,15 @@ export default function Home() {
   const handleRouletteConfirm = useCallback(() => {
     if (lobby && rouletteBet > 0) {
       socket?.emit('roulette_bet', { lobbyId: lobby.id, amount: rouletteBet });
-      setRouletteOpen(false);
-      setRouletteBet(0);
+      // Don't close roulette immediately - keep it open to show result
+      // User can close with K button or close button
     }
   }, [lobby, socket, rouletteBet]);
 
   const handleRouletteCancel = useCallback(() => {
     setRouletteOpen(false);
     setRouletteBet(0);
+    setRouletteResult(null);
   }, []);
 
   const handleTouchMove = (direction: string) => {
