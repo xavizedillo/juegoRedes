@@ -30,7 +30,7 @@ const MAX_PLAYERS_PER_LOBBY = 3;
 const activeMaps = new Map<string, number[][]>();
 
 function generateLobbyId(): string {
-  return Math.random().toString(36).substring(2, 8).toUpperCase();
+  return Math.random().toString(36).substring(2, 8).trim().toUpperCase();
 }
 
 function emitGameState(lobby: Lobby): void {
@@ -118,7 +118,7 @@ io.on('connection', (socket) => {
     }
 
     if (lobby.players.some((p) => p.id === socket.id)) {
-      socket.emit('lobby_updated', lobby);
+      socket.emit('lobby_joined', { lobbyId, lobby });
       return;
     }
 
@@ -143,6 +143,7 @@ io.on('connection', (socket) => {
     lobby.players.push(player);
     socket.join(lobbyId);
 
+    socket.emit('lobby_joined', { lobbyId, lobby });
     io.to(lobbyId).emit('lobby_updated', lobby);
   });
 

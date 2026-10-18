@@ -80,6 +80,13 @@ export default function Home() {
       setView('lobby');
     });
 
+    newSocket.on('lobby_joined', (data: { lobbyId: string; lobby: Lobby }) => {
+      lobbyRef.current = data.lobby;
+      setLobby(data.lobby);
+      setError('');
+      setView('lobby');
+    });
+
     newSocket.on('lobby_updated', (updatedLobby: Lobby) => {
       console.log('🔄 Sala actualizada:', updatedLobby);
       lobbyRef.current = updatedLobby;
@@ -294,7 +301,7 @@ export default function Home() {
 
   const handleJoinLobby = () => {
     const cleanName = playerName.trim();
-    const cleanCode = lobbyCode.trim();
+    const cleanCode = lobbyCode.trim().toUpperCase();
 
     if (!cleanName) {
       setError('Por favor ingresa tu nombre');
