@@ -6,6 +6,25 @@ const prisma = globalForPrisma.prisma ?? new PrismaClient();
 if (process.env['NODE_ENV'] !== 'production') globalForPrisma.prisma = prisma;
 
 const MAX_LIMIT = 100;
+const COUNT_TTL_MS = 10_000;
+const CACHE_HEADERS = { 'Cache-Control': 'public, s-maxage=10, stale-while-revalidate=59' };
+
+let countCache: { value: number; expiresAt: number } | null = null;
+let countInFlight: Promise<number> | null = null;
+
+function getTotal(): Promise<number> {
+  if (countCache && countCache.expiresAt > Date.now()) return Promise.resolve(countCache.value);
+  countInFlight ??= prisma.matchTelemetry
+    .count()
+    .then((value) => {
+      countCache = { value, expiresAt: Date.now() + COUNT_TTL_MS };
+      return value;
+    })
+    .finally(() => {
+      countInFlight = null;
+    });
+  return countInFlight;
+}
 
 const telemetrySelect = {
   id: true,
@@ -24,20 +43,23 @@ export async function GET(req: NextRequest) {
     const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10) || 1);
     const limit = Math.min(MAX_LIMIT, Math.max(1, parseInt(searchParams.get('limit') || '10', 10) || 10));
 
-    const [data, total] = await prisma.$transaction([
+    const [data, total] = await Promise.all([
       prisma.matchTelemetry.findMany({
         select: telemetrySelect,
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
       }),
-      prisma.matchTelemetry.count(),
+      getTotal(),
     ]);
 
-    return NextResponse.json({
-      data,
-      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
-    });
+    return NextResponse.json(
+      {
+        data,
+        pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+      },
+      { headers: CACHE_HEADERS }
+    );
   } catch (error) {
     console.error('Error fetching telemetry:', error);
     return NextResponse.json(
@@ -73,6 +95,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    countCache = null;
     return NextResponse.json({ success: true, telemetry }, { status: 201 });
   } catch (error) {
     console.error('Error saving telemetry:', error);
