@@ -6,8 +6,8 @@ const prisma = globalForPrisma.prisma ?? new PrismaClient();
 if (process.env['NODE_ENV'] !== 'production') globalForPrisma.prisma = prisma;
 
 const MAX_LIMIT = 100;
-const COUNT_TTL_MS = 10_000;
-const CACHE_HEADERS = { 'Cache-Control': 'public, s-maxage=10, stale-while-revalidate=59' };
+const COUNT_TTL_MS = 5_000;
+const CACHE_HEADERS = { 'Cache-Control': 'public, s-maxage=5, stale-while-revalidate=10' };
 
 let countCache: { value: number; expiresAt: number } | null = null;
 let countInFlight: Promise<number> | null = null;
