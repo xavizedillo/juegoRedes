@@ -14,8 +14,12 @@ import {
   allShopReady,
   advanceToNextFloor,
   removePlayerFromGame,
+  startMazePhase,
+  collectItem,
+  placeRouletteBet,
   type CombatAction,
 } from './gameLogic';
+import { getMazeConfig, generateMazeItems, generateFallbackMaze } from '../shared/mazeGenerator';
 
 const app = express();
 const httpServer = createServer(app);
@@ -44,10 +48,25 @@ function emitGameState(lobby: Lobby): void {
 
 function startNextFloor(lobby: Lobby): void {
   if (!lobby.gameState) return;
+  
   advanceToNextFloor(lobby.gameState);
-  const map = generateMap(20, 20);
-  activeMaps.set(lobby.id, map);
-  io.to(lobby.id).emit('floor_started', { map, gameState: lobby.gameState });
+  
+  // If entering MAZE phase, generate maze items
+  if (lobby.gameState.phase === 'MAZE') {
+    const mazeConfig = getMazeConfig(lobby.gameState.mazeLevel || 1);
+    const mazeItems = generateMazeItems(mazeConfig);
+    startMazePhase(lobby.gameState, mazeItems);
+    
+    // Generate maze map
+    const map = generateFallbackMaze(mazeConfig);
+    activeMaps.set(lobby.id, map);
+    io.to(lobby.id).emit('floor_started', { map, gameState: lobby.gameState });
+  } else {
+    // Normal EXPLORE phase
+    const map = generateMap(20, 20);
+    activeMaps.set(lobby.id, map);
+    io.to(lobby.id).emit('floor_started', { map, gameState: lobby.gameState });
+  }
 }
 
 io.on('connection', (socket) => {
@@ -179,7 +198,7 @@ io.on('connection', (socket) => {
       return;
     }
 
-    if (lobby.gameState.phase !== 'EXPLORE') {
+    if (lobby.gameState.phase !== 'EXPLORE' && lobby.gameState.phase !== 'MAZE') {
       return;
     }
 
@@ -208,7 +227,20 @@ io.on('connection', (socket) => {
       player.y = data.targetY;
 
       const tile = map[data.targetY]?.[data.targetX];
-      if (tile === TILE.EXIT) {
+      
+      // In MAZE phase, check for exit to proceed to next boss
+      if (lobby.gameState.phase === 'MAZE' && tile === TILE.EXIT) {
+        // Transition to EXPLORE phase for the next boss
+        lobby.gameState.phase = 'EXPLORE';
+        lobby.gameState.mazeItems = [];
+        const exploreMap = generateMap(20, 20);
+        activeMaps.set(lobby.id, exploreMap);
+        io.to(data.lobbyId).emit('floor_started', { map: exploreMap, gameState: lobby.gameState });
+        return;
+      }
+      
+      // In EXPLORE phase, exit triggers combat
+      if (lobby.gameState.phase === 'EXPLORE' && tile === TILE.EXIT) {
         startCombat(lobby.gameState);
       }
 
@@ -266,6 +298,38 @@ io.on('connection', (socket) => {
     } else {
       emitGameState(lobby);
     }
+  });
+
+  socket.on('collect_item', (data: { lobbyId: string; itemId: string }) => {
+    const lobby = lobbies.get(data.lobbyId);
+    if (!lobby || !lobby.gameState) {
+      socket.emit('error', { message: 'Partida no iniciada' });
+      return;
+    }
+
+    const result = collectItem(lobby.gameState, socket.id, data.itemId);
+    if (!result.ok) {
+      socket.emit('error', { message: result.error });
+      return;
+    }
+
+    io.to(data.lobbyId).emit('item_collected', { gameState: lobby.gameState, goldReward: result.goldReward });
+  });
+
+  socket.on('roulette_bet', (data: { lobbyId: string; amount: number }) => {
+    const lobby = lobbies.get(data.lobbyId);
+    if (!lobby || !lobby.gameState) {
+      socket.emit('error', { message: 'Partida no iniciada' });
+      return;
+    }
+
+    const result = placeRouletteBet(lobby.gameState, socket.id, data.amount);
+    if (!result.ok) {
+      socket.emit('error', { message: result.error });
+      return;
+    }
+
+    io.to(data.lobbyId).emit('roulette_result', { gameState: lobby.gameState, won: result.won, amount: result.amount });
   });
 
   socket.on('disconnect', () => {

@@ -1,6 +1,6 @@
 import type { MapData } from '../shared/mapGenerator';
 import { isWalkable } from '../shared/mapGenerator';
-import type { BossState, CombatLogEntry, GameState, PlayerState } from '../shared/types';
+import type { BossState, CombatLogEntry, GameState, PlayerState, MazeItem } from '../shared/types';
 import {
   TOTAL_LEVELS,
   bossGoldReward,
@@ -365,7 +365,16 @@ export function allShopReady(state: GameState): boolean {
 
 export function advanceToNextFloor(state: GameState): void {
   state.floor = Math.min(TOTAL_LEVELS, state.floor + 1);
-  state.phase = 'EXPLORE';
+  
+  // After boss defeat, enter MAZE phase before next boss
+  if (state.bossesDefeated > 0 && state.bossesDefeated < TOTAL_LEVELS) {
+    state.phase = 'MAZE';
+    state.mazeLevel = state.bossesDefeated;
+    state.mazeItems = []; // Will be populated by server
+  } else {
+    state.phase = 'EXPLORE';
+  }
+  
   state.boss = null;
   state.combatLog = [];
   state.shopReady = [];
@@ -374,6 +383,78 @@ export function advanceToNextFloor(state: GameState): void {
   for (const player of Object.values(state.players)) {
     player.x = 1;
     player.y = 1;
+  }
+}
+
+export function startMazePhase(state: GameState, mazeItems: MazeItem[]): void {
+  state.phase = 'MAZE';
+  state.mazeLevel = state.bossesDefeated;
+  state.mazeItems = mazeItems;
+  state.rouletteState = { isOpen: false, betAmount: 0, result: null };
+}
+
+export function collectItem(state: GameState, playerId: string, itemId: string): { ok: boolean; goldReward?: number; error?: string } {
+  if (state.phase !== 'MAZE') {
+    return { ok: false, error: 'No estás en fase de laberinto' };
+  }
+
+  const item = state.mazeItems?.find((i) => i.id === itemId);
+  if (!item) {
+    return { ok: false, error: 'Item no encontrado' };
+  }
+
+  if (item.collected) {
+    return { ok: false, error: 'Item ya recolectado' };
+  }
+
+  const player = state.players[playerId];
+  if (!player) {
+    return { ok: false, error: 'Jugador no encontrado' };
+  }
+
+  // Check if player is on the item tile
+  if (player.x !== item.x || player.y !== item.y) {
+    return { ok: false, error: 'No estás en el item' };
+  }
+
+  item.collected = true;
+
+  if (item.type === 'chest') {
+    const goldReward = 50 + state.floor * 25;
+    player.gold += goldReward;
+    return { ok: true, goldReward };
+  }
+
+  return { ok: true };
+}
+
+export function placeRouletteBet(state: GameState, playerId: string, amount: number): { ok: boolean; won?: boolean; amount?: number; error?: string } {
+  if (state.phase !== 'MAZE') {
+    return { ok: false, error: 'No estás en fase de laberinto' };
+  }
+
+  const player = state.players[playerId];
+  if (!player) {
+    return { ok: false, error: 'Jugador no encontrado' };
+  }
+
+  if (player.gold < amount) {
+    return { ok: false, error: 'Oro insuficiente' };
+  }
+
+  // Calculate win probability: higher bet = lower probability
+  // Base probability 80%, decreases by 0.7% per 1 gold bet, minimum 10%
+  const winProbability = Math.max(0.1, 0.8 - (amount * 0.007));
+  const won = Math.random() < winProbability;
+
+  player.gold -= amount;
+
+  if (won) {
+    const winnings = amount * 2;
+    player.gold += winnings;
+    return { ok: true, won: true, amount: winnings };
+  } else {
+    return { ok: true, won: false, amount: 0 };
   }
 }
 

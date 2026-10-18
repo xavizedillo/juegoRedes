@@ -229,3 +229,12 @@ export function bossImagePath(level: number): string {
 export function characterImagePath(characterId: string): string {
   return getCharacter(characterId).image;
 }
+
+export function characterAerialImagePath(characterId: string): string {
+  const characterMap: Record<string, string> = {
+    'warrior': '/peraerea/peraerea2.png',
+    'mage': '/peraerea/peraerea3.png',
+    'tank': '/peraerea/peraerea1.png',
+  };
+  return characterMap[characterId] || '/peraerea/peraerea1.png';
+}

@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { TILE, type MapData } from '../shared/mapGenerator';
 import type { Lobby, GameState } from '../shared/types';
-import { CHARACTERS, TOTAL_LEVELS, getCharacter } from '../shared/battleData';
+import { CHARACTERS, TOTAL_LEVELS, getCharacter, characterAerialImagePath } from '../shared/battleData';
 import CharacterSelect from './components/CharacterSelect';
 import BattleScreen from './components/BattleScreen';
 import ShopScreen from './components/ShopScreen';
@@ -43,9 +43,25 @@ export default function Home() {
   const [currentFloor, setCurrentFloor] = useState(1);
   const [isGameOver, setIsGameOver] = useState(false);
   const [gameStatus, setGameStatus] = useState<'VICTORY' | 'GAME_OVER' | 'PLAYING'>('PLAYING');
+  const [rouletteOpen, setRouletteOpen] = useState(false);
+  const [rouletteBet, setRouletteBet] = useState(0);
   const music = useMusic(
     musicTrack(view, gameStatus !== 'PLAYING' ? gameStatus : lobby?.gameState?.phase, lobby?.gameState?.floor ?? 1)
   );
+
+  // Handler functions - defined before useEffect to avoid hoisting issues
+  const handleCollectItem = useCallback((itemId: string) => {
+    if (lobby) {
+      socket?.emit('collect_item', { lobbyId: lobby.id, itemId });
+    }
+  }, [lobby, socket]);
+
+  const handleOpenRoulette = useCallback(() => {
+    if (lobby) {
+      setRouletteOpen(true);
+      setRouletteBet(0);
+    }
+  }, [lobby]);
 
   useEffect(() => {
     lobbyRef.current = lobby;
@@ -144,6 +160,17 @@ export default function Home() {
       }
     });
 
+    newSocket.on('item_collected', (data: { gameState: GameState; goldReward: number }) => {
+      applyGameState(data.gameState);
+      setGoldCollected(data.gameState.players[newSocket.id ?? '']?.gold ?? 0);
+    });
+
+    newSocket.on('roulette_result', (data: { gameState: GameState; won: boolean; amount: number }) => {
+      applyGameState(data.gameState);
+      setGoldCollected(data.gameState.players[newSocket.id ?? '']?.gold ?? 0);
+      console.log(`Roulette result: ${data.won ? 'WIN' : 'LOSE'}, amount: ${data.amount}`);
+    });
+
     newSocket.on('error', (err: { message: string }) => {
       console.error('❌ Error del servidor:', err);
       setError(err.message);
@@ -167,6 +194,20 @@ export default function Home() {
     const ctx = canvas.getContext('2d');
     if (!ctx || map.length === 0) return;
 
+    // Preload character images
+    const characterImages: Record<string, HTMLImageElement> = {};
+    Object.values(lobby?.gameState?.players || {}).forEach((p) => {
+      const img = new Image();
+      img.src = characterAerialImagePath(p.characterId);
+      characterImages[p.characterId] = img;
+    });
+
+    // Preload item images
+    const chestImg = new Image();
+    chestImg.src = '/items/cofre.png';
+    const rouletteImg = new Image();
+    rouletteImg.src = '/items/ruleta.png';
+
     const render = () => {
       ctx.fillStyle = '#0f0f1a';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -182,21 +223,53 @@ export default function Home() {
 
       if (lobby?.gameState?.players) {
         Object.values(lobby.gameState.players).forEach((p) => {
-          ctx.fillStyle = getCharacter(p.characterId).color;
-          ctx.beginPath();
-          ctx.arc(
-            p.x * TILE_SIZE + TILE_SIZE / 2,
-            p.y * TILE_SIZE + TILE_SIZE / 2,
-            TILE_SIZE / 3,
-            0,
-            Math.PI * 2
-          );
-          ctx.fill();
+          const charImg = characterImages[p.characterId];
+          if (charImg && charImg.complete) {
+            // Draw character sprite
+            ctx.drawImage(
+              charImg,
+              p.x * TILE_SIZE,
+              p.y * TILE_SIZE,
+              TILE_SIZE,
+              TILE_SIZE
+            );
+          } else {
+            // Fallback to circle if image not loaded
+            ctx.fillStyle = getCharacter(p.characterId).color;
+            ctx.beginPath();
+            ctx.arc(
+              p.x * TILE_SIZE + TILE_SIZE / 2,
+              p.y * TILE_SIZE + TILE_SIZE / 2,
+              TILE_SIZE / 3,
+              0,
+              Math.PI * 2
+            );
+            ctx.fill();
+          }
+          
           if (p.id === socket?.id) {
             ctx.strokeStyle = COLORS.PLAYER;
             ctx.lineWidth = 3;
-            ctx.stroke();
+            ctx.strokeRect(p.x * TILE_SIZE, p.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
             ctx.lineWidth = 1;
+          }
+        });
+      }
+
+      // Draw maze items
+      if (lobby?.gameState?.mazeItems) {
+        lobby.gameState.mazeItems.forEach((item) => {
+          if (!item.collected) {
+            const itemImg = item.type === 'chest' ? chestImg : rouletteImg;
+            if (itemImg && itemImg.complete) {
+              ctx.drawImage(
+                itemImg,
+                item.x * TILE_SIZE,
+                item.y * TILE_SIZE,
+                TILE_SIZE,
+                TILE_SIZE
+              );
+            }
           }
         });
       }
@@ -245,7 +318,7 @@ export default function Home() {
           return;
       }
 
-      if (lobby?.gameState?.phase !== 'EXPLORE') return;
+      if (lobby?.gameState?.phase !== 'EXPLORE' && lobby?.gameState?.phase !== 'MAZE') return;
       const currentPlayer = lobby.gameState.players[socket?.id ?? ''];
       console.log('Tecla presionada:', e.key, { dx, dy });
       console.log('Posición actual del jugador (cliente):', currentPlayer);
@@ -265,12 +338,47 @@ export default function Home() {
       }
     };
 
+    const handleCanvasClick = (e: MouseEvent) => {
+      if (lobby?.gameState?.phase !== 'MAZE') return;
+      
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      
+      const rect = canvas.getBoundingClientRect();
+      const x = Math.floor((e.clientX - rect.left) / TILE_SIZE);
+      const y = Math.floor((e.clientY - rect.top) / TILE_SIZE);
+      
+      const currentPlayer = lobby.gameState.players[socket?.id ?? ''];
+      if (!currentPlayer) return;
+      
+      // Check if clicked on an item
+      const item = lobby.gameState.mazeItems?.find(
+        (i) => !i.collected && i.x === x && i.y === y
+      );
+      
+      if (item) {
+        // Check if player is adjacent to the item
+        const dx = Math.abs(x - currentPlayer.x);
+        const dy = Math.abs(y - currentPlayer.y);
+        
+        if (dx + dy === 1) {
+          if (item.type === 'chest') {
+            handleCollectItem(item.id);
+          } else if (item.type === 'roulette') {
+            handleOpenRoulette();
+          }
+        }
+      }
+    };
+
     document.addEventListener('keydown', handleKeyDown);
+    canvasRef.current?.addEventListener('click', handleCanvasClick);
 
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
+      canvasRef.current?.removeEventListener('click', handleCanvasClick);
     };
-  }, [map, view, lobby, socket]);
+  }, [map, view, lobby, socket, handleCollectItem, handleOpenRoulette]);
 
   const handleCreateLobby = () => {
     if (!playerName.trim()) {
@@ -333,11 +441,28 @@ export default function Home() {
     }
   };
 
-  const handleShopReady = () => {
+  const handleShopReady = useCallback(() => {
     if (lobby) {
       socket?.emit('shop_ready', { lobbyId: lobby.id });
     }
-  };
+  }, [lobby, socket]);
+
+  const handleRouletteBet = useCallback((amount: number) => {
+    setRouletteBet(amount);
+  }, []);
+
+  const handleRouletteConfirm = useCallback(() => {
+    if (lobby && rouletteBet > 0) {
+      socket?.emit('roulette_bet', { lobbyId: lobby.id, amount: rouletteBet });
+      setRouletteOpen(false);
+      setRouletteBet(0);
+    }
+  }, [lobby, socket, rouletteBet]);
+
+  const handleRouletteCancel = useCallback(() => {
+    setRouletteOpen(false);
+    setRouletteBet(0);
+  }, []);
 
   const handleTouchMove = (direction: string) => {
     let dx = 0;
@@ -885,7 +1010,7 @@ export default function Home() {
           </div>
         )}
         <div style={{ fontSize: '14px', color: '#b08a5a' }}>
-          {showBattle ? 'Combate por turnos' : showShop ? 'Tienda' : 'WASD / Flechas · llega a la salida roja'}
+          {showBattle ? 'Combate por turnos' : showShop ? 'Tienda' : gameState?.phase === 'MAZE' ? 'Laberinto · click en items cercanos' : 'WASD / Flechas · llega a la salida roja'}
         </div>
       </div>
       {gameState && showBattle ? (
@@ -904,6 +1029,123 @@ export default function Home() {
             boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
           }}
         />
+      )}
+      {rouletteOpen && (
+        <div style={{
+          position: 'fixed',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          background: 'rgba(30, 20, 10, 0.98)',
+          padding: '40px 50px',
+          borderRadius: '12px',
+          textAlign: 'center',
+          color: '#fff',
+          border: '2px solid rgba(139, 69, 19, 0.3)',
+          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.7)',
+          zIndex: 1000,
+        }}>
+          <h2 style={{
+            color: '#c9a227',
+            marginBottom: '20px',
+            fontSize: '28px',
+            fontWeight: 'bold',
+          }}>
+            Ruleta de la Suerte
+          </h2>
+          <div style={{
+            marginBottom: '20px',
+            fontSize: '16px',
+            color: '#deb887',
+          }}>
+            Tu oro: <strong>{goldCollected}</strong>
+          </div>
+          <div style={{
+            marginBottom: '25px',
+            fontSize: '14px',
+            color: '#b08a5a',
+          }}>
+            Apuesta actual: <strong>{rouletteBet}</strong>
+          </div>
+          <div style={{
+            marginBottom: '25px',
+            fontSize: '12px',
+            color: '#888',
+          }}>
+            {rouletteBet > 0 ? `Probabilidad de ganar: ${Math.max(10, 80 - rouletteBet)}%` : 'Selecciona una apuesta'}
+          </div>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, 1fr)',
+            gap: '10px',
+            marginBottom: '25px',
+          }}>
+            {[10, 25, 50, 100, 200, 500].map((amount) => (
+              <button
+                key={amount}
+                onClick={() => handleRouletteBet(amount)}
+                disabled={amount > goldCollected}
+                style={{
+                  padding: '12px 16px',
+                  background: rouletteBet === amount
+                    ? 'linear-gradient(180deg, #c9a227 0%, #8b4513 100%)'
+                    : amount <= goldCollected
+                      ? 'rgba(60, 40, 20, 0.8)'
+                      : 'rgba(40, 30, 20, 0.4)',
+                  color: rouletteBet === amount || amount <= goldCollected ? '#fff' : '#666',
+                  border: '2px solid rgba(139, 69, 19, 0.3)',
+                  borderRadius: '8px',
+                  cursor: amount <= goldCollected ? 'pointer' : 'not-allowed',
+                  fontSize: '14px',
+                  fontWeight: 'bold',
+                  opacity: amount <= goldCollected ? 1 : 0.5,
+                }}
+              >
+                {amount}
+              </button>
+            ))}
+          </div>
+          <div style={{
+            display: 'flex',
+            gap: '12px',
+            justifyContent: 'center',
+          }}>
+            <button
+              onClick={handleRouletteConfirm}
+              disabled={rouletteBet === 0 || rouletteBet > goldCollected}
+              style={{
+                padding: '14px 32px',
+                background: rouletteBet > 0 && rouletteBet <= goldCollected
+                  ? 'linear-gradient(180deg, #c9a227 0%, #8b4513 100%)'
+                  : 'rgba(60, 40, 20, 0.6)',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '12px',
+                cursor: rouletteBet > 0 && rouletteBet <= goldCollected ? 'pointer' : 'not-allowed',
+                fontSize: '16px',
+                fontWeight: 'bold',
+                opacity: rouletteBet > 0 && rouletteBet <= goldCollected ? 1 : 0.5,
+              }}
+            >
+              OK
+            </button>
+            <button
+              onClick={handleRouletteCancel}
+              style={{
+                padding: '14px 32px',
+                background: 'linear-gradient(180deg, #ff6b6b 0%, #ee5a5a 100%)',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '12px',
+                cursor: 'pointer',
+                fontSize: '16px',
+                fontWeight: 'bold',
+              }}
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
       )}
       {isGameOver && (
         <div style={{

@@ -51,7 +51,25 @@ export const CombatLogEntrySchema = z.object({
 
 export type CombatLogEntry = z.infer<typeof CombatLogEntrySchema>;
 
-export const GamePhaseSchema = z.enum(['EXPLORE', 'COMBAT', 'SHOP', 'VICTORY', 'GAME_OVER']);
+const MazeItemSchema = z.object({
+  id: z.string(),
+  type: z.enum(['chest', 'roulette']),
+  x: z.number(),
+  y: z.number(),
+  collected: z.boolean(),
+});
+
+export type MazeItem = z.infer<typeof MazeItemSchema>;
+
+const RouletteStateSchema = z.object({
+  isOpen: z.boolean(),
+  betAmount: z.number(),
+  result: z.enum(['win', 'lose', 'pending']).nullable(),
+});
+
+export type RouletteState = z.infer<typeof RouletteStateSchema>;
+
+export const GamePhaseSchema = z.enum(['EXPLORE', 'MAZE', 'COMBAT', 'SHOP', 'VICTORY', 'GAME_OVER']);
 
 export type GamePhase = z.infer<typeof GamePhaseSchema>;
 
@@ -65,6 +83,9 @@ export const GameStateSchema = z.object({
   turn: z.number(),
   bossesDefeated: z.number(),
   shopReady: z.array(z.string()),
+  mazeLevel: z.number().optional(),
+  mazeItems: z.array(MazeItemSchema).optional(),
+  rouletteState: RouletteStateSchema.optional(),
 });
 
 export type GameState = z.infer<typeof GameStateSchema>;
