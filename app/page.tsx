@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { TILE, type MapData } from '../shared/mapGenerator';
-import type { Lobby, GameState } from '../shared/types';
+import type { Lobby, GameState, SavedGameSummary } from '../shared/types';
 import { CHARACTERS, TOTAL_LEVELS, getCharacter } from '../shared/battleData';
 import CharacterSelect from './components/CharacterSelect';
 import BattleScreen from './components/BattleScreen';
@@ -44,6 +44,10 @@ export default function Home() {
   const [currentFloor, setCurrentFloor] = useState(1);
   const [isGameOver, setIsGameOver] = useState(false);
   const [gameStatus, setGameStatus] = useState<'VICTORY' | 'GAME_OVER' | 'PLAYING'>('PLAYING');
+  const [savedGames, setSavedGames] = useState<SavedGameSummary[] | null>(null);
+  const [showExitModal, setShowExitModal] = useState(false);
+  const [notice, setNotice] = useState('');
+  const userIdRef = useRef('');
   const music = useMusic(
     musicTrack(view, gameStatus !== 'PLAYING' ? gameStatus : lobby?.gameState?.phase, lobby?.gameState?.floor ?? 1)
   );
@@ -53,6 +57,20 @@ export default function Home() {
   }, [lobby]);
 
   useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(''), 4000);
+    return () => clearTimeout(t);
+  }, [notice]);
+
+  useEffect(() => {
+    let storedId = localStorage.getItem('rw-user-id');
+    if (!storedId) {
+      storedId = crypto.randomUUID();
+      localStorage.setItem('rw-user-id', storedId);
+    }
+    userIdRef.current = storedId;
+    setPlayerName((prev) => prev || localStorage.getItem('rw-player-name') || '');
+
     const serverUrl = process.env['NEXT_PUBLIC_SOCKET_URL'] || `${window.location.protocol}//${window.location.hostname}:3001`;
     const newSocket = io(serverUrl, {
       transports: ['websocket', 'polling'],
@@ -114,10 +132,27 @@ export default function Home() {
       setMap(data.map);
       setView('game');
       gameStartTimeRef.current = Date.now();
-      setGoldCollected(0);
-      setCurrentFloor(1);
+      const mine = data.lobby.gameState?.players[newSocket.id ?? ''];
+      if (mine) setPlayer({ x: mine.x, y: mine.y });
+      setGoldCollected(mine?.gold ?? 0);
+      setCurrentFloor(data.lobby.gameState?.floor ?? 1);
       setIsGameOver(false);
       setGameStatus('PLAYING');
+      setSavedGames(null);
+      setError('');
+    });
+
+    newSocket.on('player_left', (data: { name: string; reason: 'saved' | 'left' | 'disconnected' }) => {
+      const text = { saved: 'guardó y salió de la partida', left: 'abandonó la partida', disconnected: 'se desconectó' }[data.reason];
+      setNotice(`${data.name} ${text}`);
+    });
+
+    newSocket.on('player_rejoined', (data: { name: string }) => {
+      setNotice(`${data.name} volvió a la partida`);
+    });
+
+    newSocket.on('saved_games', (data: { games: SavedGameSummary[] }) => {
+      setSavedGames(data.games);
     });
 
     newSocket.on('game_state_update', (data: { gameState: GameState }) => {
@@ -296,7 +331,8 @@ export default function Home() {
       setError('Por favor ingresa tu nombre');
       return;
     }
-    socket?.emit('create_lobby', { playerName, characterId: menuCharacter });
+    localStorage.setItem('rw-player-name', playerName.trim());
+    socket?.emit('create_lobby', { playerName, characterId: menuCharacter, userId: userIdRef.current });
   };
 
   const handleJoinLobby = () => {
@@ -313,7 +349,41 @@ export default function Home() {
     }
 
     console.log('Intentando unirse a sala:', { lobbyId: cleanCode, playerName: cleanName });
-    socket?.emit('join_lobby', { lobbyId: cleanCode, playerName: cleanName, characterId: menuCharacter });
+    localStorage.setItem('rw-player-name', cleanName);
+    socket?.emit('join_lobby', { lobbyId: cleanCode, playerName: cleanName, characterId: menuCharacter, userId: userIdRef.current });
+  };
+
+  const handleShowSavedGames = () => {
+    setError('');
+    socket?.emit('get_saved_games', { userId: userIdRef.current });
+  };
+
+  const handleResumeGame = (savedGameId: string) => {
+    socket?.emit('resume_game', { userId: userIdRef.current, savedGameId, playerName: playerName.trim() });
+  };
+
+  const exitToMenu = () => {
+    lobbyRef.current = null;
+    setLobby(null);
+    setMap([]);
+    setShowExitModal(false);
+    setIsGameOver(false);
+    setGameStatus('PLAYING');
+    setView('menu');
+  };
+
+  const handleSaveAndExit = () => {
+    if (!lobby) return;
+    socket?.emit('save_and_exit', { lobbyId: lobby.id, userId: userIdRef.current }, (res: { ok: boolean; error?: string }) => {
+      if (res.ok) setNotice('Partida guardada');
+      else setError(res.error ?? 'No se pudo guardar la partida');
+    });
+    exitToMenu();
+  };
+
+  const handleLeaveGame = () => {
+    socket?.emit('leave_game');
+    exitToMenu();
   };
 
   const handlePlayerReady = () => {
@@ -572,7 +642,58 @@ export default function Home() {
             >
               Unirse a Sala
             </button>
+            <button
+              onClick={handleShowSavedGames}
+              style={{
+                padding: '14px 24px',
+                background: 'rgba(30, 20, 10, 0.9)',
+                color: '#c9a227',
+                border: '2px solid #8b4513',
+                borderRadius: '12px',
+                cursor: 'pointer',
+                fontSize: '16px',
+                fontWeight: 'bold',
+              }}
+            >
+              Continuar Partida
+            </button>
           </div>
+
+          {savedGames && (
+            <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px', textAlign: 'left' }}>
+              {savedGames.length === 0 ? (
+                <div style={{ color: '#b08a5a', fontSize: '14px', textAlign: 'center' }}>No tienes partidas guardadas</div>
+              ) : savedGames.map((g) => (
+                <button
+                  key={g.id}
+                  onClick={() => handleResumeGame(g.id)}
+                  style={{
+                    padding: '10px 14px',
+                    background: 'rgba(139, 69, 19, 0.25)',
+                    color: '#fff',
+                    border: '1px solid #8b4513',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    textAlign: 'left',
+                  }}
+                >
+                  <strong>Sala {g.lobbyId}</strong> · Nivel {g.floor} / {TOTAL_LEVELS} · {g.players.join(', ')}
+                  <div style={{ fontSize: '12px', color: '#b08a5a' }}>{new Date(g.updatedAt).toLocaleString()}</div>
+                </button>
+              ))}
+              <button
+                onClick={() => setSavedGames(null)}
+                style={{ background: 'none', border: 'none', color: '#b08a5a', cursor: 'pointer', fontFamily: 'inherit' }}
+              >
+                Cerrar
+              </button>
+            </div>
+          )}
+
+          {notice && (
+            <div style={{ marginTop: '16px', color: '#00ff88', fontSize: '14px' }}>{notice}</div>
+          )}
 
           {error && (
             <div style={{
@@ -913,7 +1034,45 @@ export default function Home() {
         <div style={{ fontSize: '14px', color: '#b08a5a' }}>
           {showBattle ? 'Combate por turnos' : showShop ? 'Tienda' : isMobile ? 'Joystick · llega a la salida roja' : 'WASD / Flechas · llega a la salida roja'}
         </div>
+        {!isGameOver && (
+          <button
+            onClick={() => setShowExitModal(true)}
+            style={{
+              padding: '6px 14px',
+              background: 'rgba(255, 68, 68, 0.2)',
+              color: '#ff8888',
+              border: '1px solid #ff4444',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+              fontWeight: 'bold',
+            }}
+          >
+            Salir de la partida
+          </button>
+        )}
       </div>
+      {notice && (
+        <div style={{ marginBottom: '12px', padding: '8px 16px', background: 'rgba(30, 20, 10, 0.95)', color: '#ffd700', borderRadius: '8px' }}>
+          {notice}
+        </div>
+      )}
+      {showExitModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0, 0, 0, 0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div className="rw-panel" style={{ background: 'rgba(30, 20, 10, 0.98)', padding: '28px', borderRadius: '16px', border: '2px solid #8b4513', display: 'flex', flexDirection: 'column', gap: '12px', minWidth: '260px', color: '#fff', textAlign: 'center' }}>
+            <h2 style={{ margin: 0, color: '#c9a227' }}>Salir de la partida</h2>
+            <button onClick={handleSaveAndExit} style={{ padding: '12px', background: 'linear-gradient(180deg, #c9a227 0%, #8b4513 100%)', color: '#fff', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: 'bold', fontFamily: 'inherit' }}>
+              Guardar y Salir
+            </button>
+            <button onClick={handleLeaveGame} style={{ padding: '12px', background: 'rgba(255, 68, 68, 0.25)', color: '#ff8888', border: '1px solid #ff4444', borderRadius: '10px', cursor: 'pointer', fontWeight: 'bold', fontFamily: 'inherit' }}>
+              Abandonar sin guardar
+            </button>
+            <button onClick={() => setShowExitModal(false)} style={{ padding: '8px', background: 'none', color: '#b08a5a', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
       {gameState && showBattle ? (
         <BattleScreen gameState={gameState} myId={myId} onAttack={handleAttack} onDefend={handleDefend} />
       ) : gameState && showShop ? (
@@ -1013,7 +1172,7 @@ export default function Home() {
           </button>
         </div>
       )}
-      {isMobile && !showBattle && !showShop && !isGameOver && (
+      {isMobile && !showBattle && !showShop && !isGameOver && !showExitModal && (
         <TouchJoystick onMove={handleTouchMove} />
       )}
     </main>

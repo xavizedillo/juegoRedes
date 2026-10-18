@@ -1,6 +1,6 @@
 import type { MapData } from '../shared/mapGenerator';
 import { isWalkable } from '../shared/mapGenerator';
-import type { BossState, CombatLogEntry, GameState, PlayerState } from '../shared/types';
+import type { BossState, CombatLogEntry, GameState, LobbyPlayer, PlayerState, SavedGamePayload } from '../shared/types';
 import {
   ENEMY_DAMAGE_MULTIPLIER,
   TOTAL_LEVELS,
@@ -398,4 +398,52 @@ export function removePlayerFromGame(state: GameState, playerId: string, rng: Rn
     const previous = index > 0 ? order[index - 1]! : null;
     advanceTurn(state, previous !== null && state.players[previous] ? previous : null, rng);
   }
+}
+
+export function serializeGame(state: GameState, map: MapData, lobbyPlayers: LobbyPlayer[]): SavedGamePayload {
+  return {
+    version: 1,
+    state: structuredClone(state),
+    map: structuredClone(map),
+    members: lobbyPlayers
+      .filter((p) => p.userId && state.players[p.id])
+      .map((p) => ({ userId: p.userId!, playerId: p.id, name: p.name })),
+  };
+}
+
+export function addPlayerToGame(state: GameState, playerId: string, saved: PlayerState): PlayerState {
+  const player: PlayerState = { ...structuredClone(saved), id: playerId, defending: false };
+  state.players[playerId] = player;
+  if (state.phase === 'COMBAT' && !state.currentTurnPlayerId) {
+    state.currentTurnPlayerId = alivePlayerIds(state)[0] ?? null;
+  }
+  return player;
+}
+
+export interface RestoredGame {
+  state: GameState;
+  map: MapData;
+  player: PlayerState;
+  reserved: Map<string, PlayerState>;
+}
+
+export function restoreGame(payload: SavedGamePayload, userId: string, socketId: string): RestoredGame | null {
+  const source = structuredClone(payload.state);
+  const me = payload.members.find((m) => m.userId === userId);
+  const saved = me ? source.players[me.playerId] : undefined;
+  if (!me || !saved) return null;
+
+  const reserved = new Map<string, PlayerState>();
+  for (const member of payload.members) {
+    const playerState = source.players[member.playerId];
+    if (member.userId !== userId && playerState) reserved.set(member.userId, playerState);
+  }
+
+  const state: GameState = { ...source, players: {}, shopReady: [], currentTurnPlayerId: null };
+  const player = addPlayerToGame(state, socketId, saved);
+  if (state.phase === 'COMBAT' && player.hp <= 0) {
+    player.hp = 1;
+    state.currentTurnPlayerId = socketId;
+  }
+  return { state, map: structuredClone(payload.map), player, reserved };
 }

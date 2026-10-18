@@ -22,3 +22,24 @@ model MatchTelemetry {
 
   @@index([createdAt])
 }
+
+model User {
+  id         String      @id
+  name       String
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  savedGames SavedGame[]
+}
+
+model SavedGame {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lobbyId   String
+  gameState Json
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@unique([userId, lobbyId])
+  @@index([userId])
+}

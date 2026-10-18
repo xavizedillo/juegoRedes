@@ -5,6 +5,7 @@ export const LobbyPlayerSchema = z.object({
   name: z.string(),
   isReady: z.boolean(),
   characterId: z.string().optional(),
+  userId: z.string().optional(),
 });
 
 export type LobbyPlayer = z.infer<typeof LobbyPlayerSchema>;
@@ -106,3 +107,32 @@ export type StartGameEvent = z.infer<typeof StartGameEventSchema>;
 
 export type TileType = 0 | 1 | 2 | 3;
 export type MapData = number[][];
+
+export interface SavedGameMember {
+  userId: string;
+  playerId: string;
+  name: string;
+}
+
+export interface SavedGamePayload {
+  version: 1;
+  state: GameState;
+  map: MapData;
+  members: SavedGameMember[];
+}
+
+export interface SavedGameSummary {
+  id: string;
+  lobbyId: string;
+  floor: number;
+  phase: GamePhase;
+  players: string[];
+  updatedAt: string;
+}
+
+export const SavedGamePayloadSchema = z.object({
+  version: z.literal(1),
+  state: GameStateSchema,
+  map: z.array(z.array(z.number())),
+  members: z.array(z.object({ userId: z.string(), playerId: z.string(), name: z.string() })),
+});
