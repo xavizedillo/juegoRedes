@@ -119,7 +119,7 @@ export default function BattleScreen({ gameState, myId, onAttack, onDefend }: Ba
         .rw-idle { animation: rw-float 2.4s ease-in-out infinite; }
       `}</style>
 
-      <div style={{
+      <div className="rw-arena" style={{
         position: 'relative',
         height: '440px',
         borderRadius: '14px',
@@ -152,7 +152,7 @@ export default function BattleScreen({ gameState, myId, onAttack, onDefend }: Ba
         </div>
 
         {boss && (
-          <div style={{ position: 'absolute', top: '50px', right: '30px', width: '360px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <div className="rw-boss" style={{ position: 'absolute', top: '50px', right: '30px', width: '360px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <div style={{ width: '100%', padding: '8px 12px', background: 'rgba(20, 10, 5, 0.8)', borderRadius: '10px', marginBottom: '8px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                 <span style={{ fontWeight: 'bold', fontSize: '16px', color: '#ff8a8a' }}>{boss.name}</span>
@@ -172,14 +172,14 @@ export default function BattleScreen({ gameState, myId, onAttack, onDefend }: Ba
           </div>
         )}
 
-        <div style={{ position: 'absolute', bottom: '16px', left: '24px', display: 'flex', gap: '10px', alignItems: 'flex-end' }}>
+        <div className="rw-party" style={{ position: 'absolute', bottom: '16px', left: '24px', display: 'flex', gap: '10px', alignItems: 'flex-end' }}>
           {Object.values(gameState.players).map((p) => (
             <PartyMember key={p.id} player={p} isTurn={gameState.phase === 'COMBAT' && p.id === gameState.currentTurnPlayerId} isMe={p.id === myId} />
           ))}
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: '14px', marginTop: '14px' }}>
+      <div className="rw-battle-grid" style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: '14px', marginTop: '14px' }}>
         <div style={{ background: 'rgba(30, 20, 10, 0.95)', borderRadius: '12px', padding: '12px', border: '2px solid rgba(139, 69, 19, 0.3)' }}>
           <div style={{ fontSize: '14px', marginBottom: '8px', color: isMyTurn ? '#ffd700' : '#deb887', fontWeight: 'bold' }}>
             {gameState.phase !== 'COMBAT'
@@ -190,7 +190,7 @@ export default function BattleScreen({ gameState, myId, onAttack, onDefend }: Ba
                   ? '¡Tu turno! Elige un ataque'
                   : `Turno de ${currentTurnPlayer?.name ?? '...'}`}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', maxHeight: '190px', overflowY: 'auto', paddingRight: '4px' }}>
+          <div className="rw-attack-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', maxHeight: '190px', overflowY: 'auto', paddingRight: '4px' }}>
             {ownedAttacks.map((attack) => {
               const affordable = (me?.energy ?? 0) >= attack.cost;
               const enabled = isMyTurn && affordable;

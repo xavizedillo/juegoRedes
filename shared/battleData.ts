@@ -1,5 +1,7 @@
 export const TOTAL_LEVELS = 10;
 export const STARTING_ATTACKS = 1;
+export const ENEMY_DAMAGE_MULTIPLIER = 1.3;
+export const GOLD_REWARD_MULTIPLIER = 0.6;
 
 export interface AttackDef {
   id: string;
@@ -215,7 +217,7 @@ export function getBossDef(level: number): BossDef {
 }
 
 export function bossGoldReward(level: number): number {
-  return 60 + level * 45;
+  return Math.round((60 + level * 45) * GOLD_REWARD_MULTIPLIER);
 }
 
 export function scenarioImagePath(level: number): string {

@@ -21,7 +21,7 @@ export default function ShopScreen({ gameState, myId, onBuy, onReady }: ShopScre
   const players = Object.values(gameState.players);
 
   return (
-    <div style={{
+    <div className="rw-panel" style={{
       width: '960px',
       maxWidth: '100%',
       color: '#fff',
@@ -48,7 +48,7 @@ export default function ShopScreen({ gameState, myId, onBuy, onReady }: ShopScre
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', maxHeight: '460px', overflowY: 'auto', paddingRight: '4px' }}>
+      <div className="rw-attack-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', maxHeight: '460px', overflowY: 'auto', paddingRight: '4px' }}>
         {character.attacks.map((attack, index) => {
           const owned = me.attacks.includes(attack.id);
           const affordable = me.gold >= attack.price;

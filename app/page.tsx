@@ -10,6 +10,7 @@ import BattleScreen from './components/BattleScreen';
 import ShopScreen from './components/ShopScreen';
 import { MusicToggle, useMusic } from './components/useMusic';
 import { musicTrack } from '../shared/musicData';
+import TouchJoystick, { type Direction } from './components/TouchJoystick';
 
 const TILE_SIZE = 30;
 const MAP_WIDTH = 20;
@@ -52,7 +53,8 @@ export default function Home() {
   }, [lobby]);
 
   useEffect(() => {
-    const newSocket = io('http://localhost:3001', {
+    const serverUrl = process.env['NEXT_PUBLIC_SOCKET_URL'] || `${window.location.protocol}//${window.location.hostname}:3001`;
+    const newSocket = io(serverUrl, {
       transports: ['websocket', 'polling'],
     });
     setSocket(newSocket);
@@ -73,17 +75,31 @@ export default function Home() {
 
     newSocket.on('lobby_created', (data: { lobbyId: string; lobby: Lobby }) => {
       console.log('🏰 Sala creada:', data);
+      lobbyRef.current = data.lobby;
       setLobby(data.lobby);
+      setView('lobby');
+    });
+
+    newSocket.on('lobby_joined', (data: { lobbyId: string; lobby: Lobby }) => {
+      lobbyRef.current = data.lobby;
+      setLobby(data.lobby);
+      setError('');
       setView('lobby');
     });
 
     newSocket.on('lobby_updated', (updatedLobby: Lobby) => {
       console.log('🔄 Sala actualizada:', updatedLobby);
+      lobbyRef.current = updatedLobby;
       setLobby(updatedLobby);
     });
 
     const applyGameState = (gameState: GameState) => {
-      setLobby((prev) => (prev ? { ...prev, gameState } : prev));
+      setLobby((prev) => {
+        if (!prev) return prev;
+        const next = { ...prev, gameState };
+        lobbyRef.current = next;
+        return next;
+      });
       const playerData = gameState.players[newSocket.id ?? ''];
       if (playerData) {
         setPlayer({ x: playerData.x, y: playerData.y });
@@ -93,6 +109,7 @@ export default function Home() {
     };
 
     newSocket.on('game_started', (data: { lobby: Lobby; map: MapData }) => {
+      lobbyRef.current = data.lobby;
       setLobby(data.lobby);
       setMap(data.map);
       setView('game');
@@ -155,10 +172,14 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (view === 'game') {
-      setIsMobile(/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent));
-    }
-  }, [view]);
+    const detect = () => setIsMobile(
+      window.matchMedia('(pointer: coarse)').matches
+      || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+    );
+    detect();
+    window.addEventListener('resize', detect);
+    return () => window.removeEventListener('resize', detect);
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -245,24 +266,22 @@ export default function Home() {
           return;
       }
 
-      if (lobby?.gameState?.phase !== 'EXPLORE') return;
-      const currentPlayer = lobby.gameState.players[socket?.id ?? ''];
-      console.log('Tecla presionada:', e.key, { dx, dy });
-      console.log('Posición actual del jugador (cliente):', currentPlayer);
+      e.preventDefault();
 
-      if (!currentPlayer) {
-        console.log('Jugador no encontrado en gameState');
-        return;
-      }
+      const currentLobby = lobbyRef.current;
+      if (currentLobby?.gameState?.phase !== 'EXPLORE') return;
+
+      const currentPlayer = currentLobby.gameState.players[socket?.id ?? ''];
+      if (!currentPlayer) return;
 
       const newX = currentPlayer.x + dx;
       const newY = currentPlayer.y + dy;
 
-      console.log('Enviando movimiento:', { from: { x: currentPlayer.x, y: currentPlayer.y }, to: { x: newX, y: newY } });
-
-      if (lobby) {
-        socket?.emit('player_move', { lobbyId: lobby.id, targetX: newX, targetY: newY });
-      }
+      socket?.emit('player_move', {
+        lobbyId: currentLobby.id,
+        targetX: newX,
+        targetY: newY,
+      });
     };
 
     document.addEventListener('keydown', handleKeyDown);
@@ -270,7 +289,7 @@ export default function Home() {
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [map, view, lobby, socket]);
+  }, [view, socket]);
 
   const handleCreateLobby = () => {
     if (!playerName.trim()) {
@@ -282,7 +301,7 @@ export default function Home() {
 
   const handleJoinLobby = () => {
     const cleanName = playerName.trim();
-    const cleanCode = lobbyCode.trim();
+    const cleanCode = lobbyCode.trim().toUpperCase();
 
     if (!cleanName) {
       setError('Por favor ingresa tu nombre');
@@ -339,7 +358,15 @@ export default function Home() {
     }
   };
 
-  const handleTouchMove = (direction: string) => {
+  const handleLeaveLobby = () => {
+    socket?.emit('leave_lobby');
+    lobbyRef.current = null;
+    setLobby(null);
+    setError('');
+    setView('menu');
+  };
+
+  const handleTouchMove = (direction: Direction) => {
     let dx = 0;
     let dy = 0;
 
@@ -360,16 +387,15 @@ export default function Home() {
         return;
     }
 
-    if (lobby?.gameState?.phase !== 'EXPLORE') return;
-    const currentPlayer = lobby.gameState.players[socket?.id ?? ''];
+    const currentLobby = lobbyRef.current;
+    if (currentLobby?.gameState?.phase !== 'EXPLORE') return;
+    const currentPlayer = currentLobby.gameState.players[socket?.id ?? ''];
     if (!currentPlayer) return;
 
     const newX = currentPlayer.x + dx;
     const newY = currentPlayer.y + dy;
 
-    if (lobby) {
-      socket?.emit('player_move', { lobbyId: lobby.id, targetX: newX, targetY: newY });
-    }
+    socket?.emit('player_move', { lobbyId: currentLobby.id, targetX: newX, targetY: newY });
   };
 
   if (view === 'menu') {
@@ -387,7 +413,7 @@ export default function Home() {
         fontFamily: 'Courier New, monospace',
       }}>
         <MusicToggle muted={music.muted} onToggle={music.toggleMuted} />
-        <div style={{
+        <div className="rw-panel" style={{
           background: 'rgba(30, 20, 10, 0.95)',
           padding: '50px 60px',
           borderRadius: '4px',
@@ -594,7 +620,7 @@ export default function Home() {
         fontFamily: 'Courier New, monospace',
       }}>
         <MusicToggle muted={music.muted} onToggle={music.toggleMuted} />
-        <div style={{
+        <div className="rw-panel" style={{
           background: 'rgba(30, 20, 10, 0.95)',
           padding: '40px 50px',
           borderRadius: '4px',
@@ -792,7 +818,7 @@ export default function Home() {
           )}
 
           <button
-            onClick={() => setView('menu')}
+            onClick={handleLeaveLobby}
             style={{
               marginTop: '20px',
               padding: '10px 20px',
@@ -840,7 +866,7 @@ export default function Home() {
       fontFamily: 'Courier New, monospace',
     }}>
       <MusicToggle muted={music.muted} onToggle={music.toggleMuted} />
-      <div style={{
+      <div className="rw-hud" style={{
         background: 'rgba(30, 20, 10, 0.95)',
         padding: '15px 40px',
         borderRadius: '15px',
@@ -885,7 +911,7 @@ export default function Home() {
           </div>
         )}
         <div style={{ fontSize: '14px', color: '#b08a5a' }}>
-          {showBattle ? 'Combate por turnos' : showShop ? 'Tienda' : 'WASD / Flechas · llega a la salida roja'}
+          {showBattle ? 'Combate por turnos' : showShop ? 'Tienda' : isMobile ? 'Joystick · llega a la salida roja' : 'WASD / Flechas · llega a la salida roja'}
         </div>
       </div>
       {gameState && showBattle ? (
@@ -894,6 +920,7 @@ export default function Home() {
         <ShopScreen gameState={gameState} myId={myId} onBuy={handleBuyAttack} onReady={handleShopReady} />
       ) : (
         <canvas
+          className="rw-canvas"
           ref={canvasRef}
           width={MAP_WIDTH * TILE_SIZE}
           height={MAP_HEIGHT * TILE_SIZE}
@@ -913,6 +940,8 @@ export default function Home() {
           transform: 'translate(-50%, -50%)',
           background: 'rgba(30, 20, 10, 0.98)',
           padding: '50px 60px',
+          maxWidth: '92vw',
+          boxSizing: 'border-box',
           borderRadius: '4px',
           textAlign: 'center',
           color: '#fff',
@@ -958,7 +987,7 @@ export default function Home() {
             <div>Oro recolectado: <strong>{goldCollected}</strong></div>
           </div>
           <button
-            onClick={() => setView('menu')}
+            onClick={handleLeaveLobby}
             style={{
               padding: '16px 32px',
               background: 'linear-gradient(180deg, #c9a227 0%, #8b4513 100%)',
@@ -984,80 +1013,8 @@ export default function Home() {
           </button>
         </div>
       )}
-      {isMobile && !showBattle && !showShop && (
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, 60px)',
-          gridTemplateRows: 'repeat(3, 60px)',
-          gap: '5px',
-          marginTop: '20px',
-        }}>
-          <div />
-          <button
-            onTouchStart={() => handleTouchMove('up')}
-            style={{
-              width: '60px',
-              height: '60px',
-              fontSize: '24px',
-              background: '#4a4a6a',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '8px',
-              cursor: 'pointer',
-            }}
-          >
-            ↑
-          </button>
-          <div />
-          <button
-            onTouchStart={() => handleTouchMove('left')}
-            style={{
-              width: '60px',
-              height: '60px',
-              fontSize: '24px',
-              background: '#4a4a6a',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '8px',
-              cursor: 'pointer',
-            }}
-          >
-            ←
-          </button>
-          <div />
-          <button
-            onTouchStart={() => handleTouchMove('right')}
-            style={{
-              width: '60px',
-              height: '60px',
-              fontSize: '24px',
-              background: '#4a4a6a',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '8px',
-              cursor: 'pointer',
-            }}
-          >
-            →
-          </button>
-          <div />
-          <button
-            onTouchStart={() => handleTouchMove('down')}
-            style={{
-              width: '60px',
-              height: '60px',
-              fontSize: '24px',
-              background: '#4a4a6a',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '8px',
-              cursor: 'pointer',
-            }}
-          >
-            ↓
-          </button>
-          <div />
-        </div>
+      {isMobile && !showBattle && !showShop && !isGameOver && (
+        <TouchJoystick onMove={handleTouchMove} />
       )}
     </main>
   );
