@@ -6,7 +6,7 @@
     "dev": "next dev",
     "dev:full": "tsx --tsconfig tsconfig.server.json server/index.ts",
     "build": "prisma generate && next build",
-    "start": "prisma migrate deploy && tsx --tsconfig tsconfig.server.json server/index.ts",
+    "start": "prisma db push && tsx --tsconfig tsconfig.server.json server/index.ts",
     "server": "tsx --tsconfig tsconfig.server.json server/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest"

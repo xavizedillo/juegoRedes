@@ -38,6 +38,68 @@ const lobbies = new Map<string, Lobby>();
 const MAX_PLAYERS_PER_LOBBY = 3;
 const activeMaps = new Map<string, number[][]>();
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isPlayerPayload(
+  value: unknown,
+): value is { playerName: string; characterId?: string } {
+  return isRecord(value)
+    && typeof value['playerName'] === 'string'
+    && (value['characterId'] === undefined || typeof value['characterId'] === 'string');
+}
+
+function isJoinPayload(
+  value: unknown,
+): value is { lobbyId: string; playerName: string; characterId?: string } {
+  return isPlayerPayload(value) && hasLobbyId(value);
+}
+
+function isCombatPayload(
+  value: unknown,
+): value is { lobbyId: string; action: 'attack' | 'defend'; attackId?: string } {
+  return hasLobbyId(value)
+    && 'action' in value
+    && (value.action === 'attack' || value.action === 'defend')
+    && (!('attackId' in value) || typeof value.attackId === 'string');
+}
+
+function isCharacterPayload(value: unknown): value is { lobbyId: string; characterId: string } {
+  return hasLobbyId(value)
+    && 'characterId' in value
+    && typeof value.characterId === 'string';
+}
+
+function isMovementPayload(
+  value: unknown,
+): value is { lobbyId: string; targetX: number; targetY: number } {
+  return hasLobbyId(value)
+    && 'targetX' in value
+    && typeof value.targetX === 'number'
+    && Number.isFinite(value.targetX)
+    && 'targetY' in value
+    && typeof value.targetY === 'number'
+    && Number.isFinite(value.targetY);
+}
+
+function hasLobbyId(value: unknown): value is { lobbyId: string } {
+  return isRecord(value) && typeof value['lobbyId'] === 'string';
+}
+
+function handleFatalError(context: string, error: unknown): void {
+  console.error(`${context}; terminating so Railway can restart the server:`, error);
+  process.exit(1);
+}
+
+process.on('uncaughtException', (error: Error) => {
+  handleFatalError('Uncaught exception', error);
+});
+
+process.on('unhandledRejection', (reason: unknown) => {
+  handleFatalError('Unhandled promise rejection', reason);
+});
+
 function generateLobbyId(): string {
   return Math.random().toString(36).substring(2, 8).trim().toUpperCase();
 }
@@ -92,7 +154,11 @@ function leaveLobby(socket: Socket): void {
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
 
-  socket.on('create_lobby', (data: { playerName: string; characterId?: string }) => {
+  socket.on('create_lobby', (data: unknown) => {
+    if (!isPlayerPayload(data)) {
+      socket.emit('error', { message: 'Datos del jugador no válidos' });
+      return;
+    }
     leaveLobby(socket);
     let lobbyId = generateLobbyId();
     while (lobbies.has(lobbyId)) lobbyId = generateLobbyId();
@@ -117,7 +183,11 @@ io.on('connection', (socket) => {
     io.to(lobbyId).emit('lobby_updated', lobby);
   });
 
-  socket.on('join_lobby', (data: { lobbyId: string; playerName: string; characterId?: string }) => {
+  socket.on('join_lobby', (data: unknown) => {
+    if (!isJoinPayload(data)) {
+      socket.emit('error', { message: 'Datos de unión no válidos' });
+      return;
+    }
     const lobbyId = String(data.lobbyId ?? '').trim().toUpperCase();
     const lobby = lobbies.get(lobbyId);
 
@@ -160,7 +230,11 @@ io.on('connection', (socket) => {
     leaveLobby(socket);
   });
 
-  socket.on('player_ready', (data: { lobbyId: string }) => {
+  socket.on('player_ready', (data: unknown) => {
+    if (!hasLobbyId(data)) {
+      socket.emit('error', { message: 'Datos de sala no válidos' });
+      return;
+    }
     const lobby = lobbies.get(data.lobbyId);
 
     if (!lobby) {
@@ -175,7 +249,11 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('select_character', (data: { lobbyId: string; characterId: string }) => {
+  socket.on('select_character', (data: unknown) => {
+    if (!isCharacterPayload(data)) {
+      socket.emit('error', { message: 'Datos de personaje no válidos' });
+      return;
+    }
     const lobby = lobbies.get(data.lobbyId);
     if (!lobby) {
       socket.emit('error', { message: 'Sala no encontrada' });
@@ -196,7 +274,11 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('start_game', (data: { lobbyId: string }) => {
+  socket.on('start_game', (data: unknown) => {
+    if (!hasLobbyId(data)) {
+      socket.emit('error', { message: 'Datos de sala no válidos' });
+      return;
+    }
     const lobby = lobbies.get(data.lobbyId);
 
     if (!lobby) {
@@ -227,7 +309,11 @@ io.on('connection', (socket) => {
     io.to(data.lobbyId).emit('game_started', { lobby, map });
   });
 
-  socket.on('player_move', (data: { lobbyId: string; targetX: number; targetY: number }) => {
+  socket.on('player_move', (data: unknown) => {
+    if (!isMovementPayload(data)) {
+      socket.emit('error', { message: 'Datos de movimiento no válidos' });
+      return;
+    }
     const lobby = lobbies.get(data.lobbyId);
     if (!lobby || !lobby.gameState) {
       console.log('Error: Partida no iniciada');
@@ -268,7 +354,11 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('combat_action', (data: { lobbyId: string; action: 'attack' | 'defend'; attackId?: string }) => {
+  socket.on('combat_action', (data: unknown) => {
+    if (!isCombatPayload(data)) {
+      socket.emit('error', { message: 'Datos de combate no válidos' });
+      return;
+    }
     const lobby = lobbies.get(data.lobbyId);
     if (!lobby || !lobby.gameState) {
       socket.emit('error', { message: 'Partida no iniciada' });
@@ -287,7 +377,11 @@ io.on('connection', (socket) => {
     emitGameState(lobby);
   });
 
-  socket.on('buy_attack', (data: { lobbyId: string; attackId: string }) => {
+  socket.on('buy_attack', (data: unknown) => {
+    if (!hasLobbyId(data) || !('attackId' in data) || typeof data.attackId !== 'string') {
+      socket.emit('error', { message: 'Datos de compra no válidos' });
+      return;
+    }
     const lobby = lobbies.get(data.lobbyId);
     if (!lobby || !lobby.gameState) {
       socket.emit('error', { message: 'Partida no iniciada' });
@@ -303,7 +397,11 @@ io.on('connection', (socket) => {
     emitGameState(lobby);
   });
 
-  socket.on('shop_ready', (data: { lobbyId: string }) => {
+  socket.on('shop_ready', (data: unknown) => {
+    if (!hasLobbyId(data)) {
+      socket.emit('error', { message: 'Datos de sala no válidos' });
+      return;
+    }
     const lobby = lobbies.get(data.lobbyId);
     if (!lobby || !lobby.gameState) {
       socket.emit('error', { message: 'Partida no iniciada' });
@@ -325,7 +423,7 @@ io.on('connection', (socket) => {
 
 async function startServer(): Promise<void> {
   await nextApp.prepare();
-  const port = Number(process.env['PORT'] || 3001);
+  const port = Number(process.env['PORT'] || 3000);
   httpServer.listen(port, '0.0.0.0', () => {
     console.log(`Server running on port ${port}`);
   });
