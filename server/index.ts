@@ -1,4 +1,4 @@
-import express from 'express';
+import next from 'next';
 import { createServer } from 'http';
 import { Server, type Socket } from 'socket.io';
 import { generateMap, TILE } from '../shared/mapGenerator';
@@ -17,8 +17,17 @@ import {
   type CombatAction,
 } from './gameLogic';
 
-const app = express();
-const httpServer = createServer(app);
+const nextApp = next({ dev: process.env['NODE_ENV'] !== 'production' });
+const handleNextRequest = nextApp.getRequestHandler();
+const httpServer = createServer((request, response) => {
+  void handleNextRequest(request, response).catch((error: unknown) => {
+    console.error('Error handling Next.js request:', error);
+    if (!response.headersSent) {
+      response.statusCode = 500;
+    }
+    response.end('Internal Server Error');
+  });
+});
 const io = new Server(httpServer, {
   cors: {
     origin: '*',
@@ -314,7 +323,15 @@ io.on('connection', (socket) => {
   });
 });
 
-const PORT = process.env['PORT'] || 3001;
-httpServer.listen(Number(PORT), '0.0.0.0', () => {
-  console.log(`Server running on port ${PORT}`);
+async function startServer(): Promise<void> {
+  await nextApp.prepare();
+  const port = Number(process.env['PORT'] || 3001);
+  httpServer.listen(port, '0.0.0.0', () => {
+    console.log(`Server running on port ${port}`);
+  });
+}
+
+startServer().catch((error: unknown) => {
+  console.error('Failed to start server:', error);
+  process.exitCode = 1;
 });

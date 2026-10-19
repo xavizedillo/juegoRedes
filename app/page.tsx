@@ -53,7 +53,7 @@ export default function Home() {
   }, [lobby]);
 
   useEffect(() => {
-    const serverUrl = process.env['NEXT_PUBLIC_SOCKET_URL'] || `${window.location.protocol}//${window.location.hostname}:3001`;
+    const serverUrl = process.env['NEXT_PUBLIC_SOCKET_URL'] || window.location.origin;
     const newSocket = io(serverUrl, {
       transports: ['websocket', 'polling'],
     });
